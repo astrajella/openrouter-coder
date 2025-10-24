@@ -1,12 +1,11 @@
 import os
 import google.generativeai as genai
-from google.generativeai.protos import FunctionDeclaration, Tool
+from google.generativeai.protos import FunctionDeclaration, Tool, Part
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 import json
 import datetime
-import subprocess
 import chromadb
 from sentence_transformers import SentenceTransformer
 
@@ -18,7 +17,7 @@ chroma_db_path = os.path.join(script_dir, 'chroma_db')
 scratchpad_path = os.path.join(script_dir, 'scratchpad.md')
 main_plan_path = os.path.join(script_dir, 'main-plan.md')
 raw_conversations_path = os.path.join(script_dir, '../raw-conversations')
-
+last_indexed_path = os.path.join(script_dir, 'last_indexed.json')
 
 app = Flask(__name__)
 CORS(app)
@@ -102,9 +101,10 @@ def get_models():
 def index_codebase():
     """Indexes the codebase."""
     try:
-        # Clear the collection before indexing
-        client.delete_collection("codebase")
-        collection = client.get_or_create_collection("codebase")
+        last_indexed = {}
+        if os.path.exists(last_indexed_path):
+            with open(last_indexed_path, 'r') as f:
+                last_indexed = json.load(f)
 
         for root, dirs, files in os.walk('.'):
             # Skip the .git and backend directories
@@ -116,6 +116,10 @@ def index_codebase():
             for file in files:
                 filepath = os.path.join(root, file)
                 try:
+                    mtime = os.path.getmtime(filepath)
+                    if filepath in last_indexed and mtime <= last_indexed[filepath]:
+                        continue
+
                     with open(filepath, 'r', errors='ignore') as f:
                         content = f.read()
 
@@ -125,18 +129,66 @@ def index_codebase():
 
                     # Generate and store embeddings
                     embeddings = embedding_model.encode(chunks)
+                    ids = [f"{filepath}-{i}" for i in range(len(chunks))]
+
+                    # Remove old chunks for this file
+                    collection.delete(where={"filepath": filepath})
+
                     collection.add(
                         embeddings=embeddings,
                         documents=chunks,
                         metadatas=[{"filepath": filepath} for _ in chunks],
-                        ids=[f"{filepath}-{i}" for i in range(len(chunks))]
+                        ids=ids
                     )
+                    last_indexed[filepath] = mtime
                 except Exception as e:
                     print(f"Error indexing {filepath}: {e}")
+
+        with open(last_indexed_path, 'w') as f:
+            json.dump(last_indexed, f)
 
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+def reconstruct_history(conversation_history):
+    history = []
+    for entry in conversation_history:
+        role = entry['role']
+        parts = []
+        for part in entry['parts']:
+            if 'text' in part:
+                parts.append(Part(text=part['text']))
+            elif 'function_call' in part:
+                parts.append(Part(function_call=part['function_call']))
+            elif 'function_response' in part:
+                parts.append(Part(function_response=part['function_response']))
+        history.append({"role": role, "parts": parts})
+    return history
+
+def execute_tool_loop(chat_session, history):
+    response = chat_session.send_message(history[-1]["parts"])
+
+    while response.function_calls:
+        function_call = response.function_calls[0]
+        tool_name = function_call.name
+        tool_args = {key: value for key, value in function_call.args.items()}
+
+        history.append({"role": "model", "parts": [Part(function_call=function_call)]})
+
+        if tool_name in tool_map:
+            tool_result = tool_map[tool_name](**tool_args)
+            part = Part(function_response={"name": tool_name, "response": {"result": tool_result}})
+            history.append({"role": "tool", "parts": [part]})
+            response = chat_session.send_message([part])
+        else:
+            tool_result = f"Unknown tool: {tool_name}"
+            part = Part(function_response={"name": tool_name, "response": {"result": tool_result}})
+            history.append({"role": "tool", "parts": [part]})
+            response = chat_session.send_message([part])
+
+    history.append({"role": "model", "parts": [Part(text=response.text)]})
+    return response, history
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -166,42 +218,28 @@ def chat():
             rag_context += f"{doc}\n"
 
         # Reconstruct the conversation history for the model
-        history = []
-        for entry in conversation_history:
-            history.append({"role": entry['role'], "parts": [{"text": entry['parts'][0]}]})
+        history = reconstruct_history(conversation_history)
 
         # Prepend the RAG context to the user's message
         full_message = f"{rag_context}\n{message}"
+        history.append({"role": "user", "parts": [Part(text=full_message)]})
 
-        chat_session = model.start_chat(history=history)
-        response = chat_session.send_message(full_message)
-
-        while response.function_calls:
-            function_call = response.function_calls[0]
-            tool_name = function_call.name
-            tool_args = {key: value for key, value in function_call.args.items()}
-
-            if tool_name in tool_map:
-                tool_result = tool_map[tool_name](**tool_args)
-                response = chat_session.send_message(
-                    {"role": "function", "parts": [{"function_response": {"name": tool_name, "response": {"result": tool_result}}}]}
-                )
-            else:
-                response = chat_session.send_message(
-                    {"role": "function", "parts": [{"function_response": {"name": tool_name, "response": {"result": f"Unknown tool: {tool_name}"}}}]}
-                )
+        chat_session = model.start_chat(history=history[:-1])
+        response, history = execute_tool_loop(chat_session, history)
 
         # Save the conversation
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         conversation_file = os.path.join(raw_conversations_path, f'{timestamp}.json')
         os.makedirs(raw_conversations_path, exist_ok=True)
+        # Convert Parts to dicts for JSON serialization
+        serializable_history = [
+            {"role": h["role"], "parts": [{"text": p.text} if p.text else {"function_call": {"name": p.function_call.name, "args": dict(p.function_call.args)}} if p.function_call else {"function_response": {"name": p.function_response.name, "response": dict(p.function_response.response)}} for p in h["parts"]]}
+            for h in history
+        ]
         with open(conversation_file, 'w') as f:
-            json.dump({
-                "prompt": full_message,
-                "response": response.text
-            }, f)
+            json.dump(serializable_history, f)
 
-        return jsonify({"response": response.text})
+        return jsonify({"response": response.text, "history": serializable_history})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -241,17 +279,22 @@ def fix_error():
         return jsonify({"error": "Error message is required."}), 400
 
     try:
-        model = genai.GenerativeModel(model_name)
+        model = genai.GenerativeModel(model_name, tools=tool_config)
 
         # Reconstruct the conversation history for the model
-        history = []
-        for entry in conversation_history:
-            history.append({"role": entry['role'], "parts": [{"text": entry['parts'][0]}]})
+        history = reconstruct_history(conversation_history)
 
-        chat_session = model.start_chat(history=history)
-        response = chat_session.send_message(f"The previous response caused an error: {error_message}. Please try again.")
+        history.append({"role": "user", "parts": [Part(text=f"The previous response caused an error: {error_message}. Please try again.")]})
 
-        return jsonify({"response": response.text})
+        chat_session = model.start_chat(history=history[:-1])
+        response, history = execute_tool_loop(chat_session, history)
+
+        serializable_history = [
+            {"role": h["role"], "parts": [{"text": p.text} if p.text else {"function_call": {"name": p.function_call.name, "args": dict(p.function_call.args)}} if p.function_call else {"function_response": {"name": p.function_response.name, "response": dict(p.function_response.response)}} for p in h["parts"]]}
+            for h in history
+        ]
+
+        return jsonify({"response": response.text, "history": serializable_history})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
