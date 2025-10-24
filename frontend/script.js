@@ -9,8 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const indexingStatus = document.getElementById('indexing-status');
     const scratchpad = document.getElementById('scratchpad');
     const mainPlan = document.getElementById('main-plan');
+    const goalInput = document.getElementById('goal-input');
+    const runAgentButton = document.getElementById('run-agent-button');
+    const stopAgentButton = document.getElementById('stop-agent-button');
 
     let conversationHistory = [];
+    let statusInterval;
 
     // Fetch and populate the models
     fetch('http://localhost:5000/models')
@@ -25,22 +29,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
     // Fetch and populate the scratchpad and main plan
-    fetch('http://localhost:5000/scratchpad')
-        .then(response => response.text())
-        .then(text => scratchpad.value = text);
-
-    fetch('http://localhost:5000/main_plan')
-        .then(response => response.text())
-        .then(text => mainPlan.value = text);
+    fetch('http://localhost:5000/scratchpad').then(response => response.text()).then(text => scratchpad.value = text);
+    fetch('http://localhost:5000/main_plan').then(response => response.text()).then(text => mainPlan.value = text);
 
     // Send a message
     sendButton.addEventListener('click', () => {
         const message = messageInput.value;
         const selectedModel = modelDropdown.value;
-
-        if (message) {
-            sendMessage(message, selectedModel);
-        }
+        if (message) sendMessage(message, selectedModel);
     });
 
     async function sendMessage(message, model) {
@@ -55,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({
                 model: model,
                 message: message,
-                conversation_history: conversationHistory.slice(0, -1) // Send history without the current message
+                conversation_history: conversationHistory.slice(0, -1)
             })
         })
         .then(response => response.json())
@@ -69,23 +65,64 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderHistory() {
         chatHistory.innerHTML = '';
         conversationHistory.forEach(turn => {
+            const part = turn.parts[0];
             if (turn.role === 'user') {
-                appendMessage('user', turn.parts[0].text);
+                appendMessage('user', part.text);
             } else if (turn.role === 'model') {
-                if (turn.parts[0].function_call) {
-                    const fc = turn.parts[0].function_call;
-                    appendMessage('tool', `Tool Call: ${fc.name}(${JSON.stringify(fc.args)})`);
+                if (part.function_call) {
+                    appendMessage('tool', `Tool Call: ${part.function_call.name}(${JSON.stringify(part.function_call.args)})`);
                 } else {
-                    appendMessage('model', turn.parts[0].text);
+                    appendMessage('model', part.text);
                 }
             } else if (turn.role === 'tool') {
-                const fr = turn.parts[0].function_response;
-                appendMessage('tool', `Tool Result: ${fr.response.result}`);
+                appendMessage('tool', `Tool Result: ${part.function_response.response.result}`);
             }
         });
     }
 
-    // Fix an error
+    // Agent Controls
+    runAgentButton.addEventListener('click', () => {
+        const goal = goalInput.value;
+        const model = modelDropdown.value;
+        if (!goal) {
+            alert("Please enter a goal for the agent.");
+            return;
+        }
+        fetch('http://localhost:5000/execute_plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ goal: goal, model: model })
+        }).then(() => {
+            runAgentButton.disabled = true;
+            stopAgentButton.disabled = false;
+            statusInterval = setInterval(pollStatus, 2000);
+        });
+    });
+
+    stopAgentButton.addEventListener('click', () => {
+        fetch('http://localhost:5000/stop_agent', { method: 'POST' }).then(() => {
+            runAgentButton.disabled = false;
+            stopAgentButton.disabled = true;
+            clearInterval(statusInterval);
+        });
+    });
+
+    function pollStatus() {
+        fetch('http://localhost:5000/status')
+            .then(response => response.json())
+            .then(data => {
+                scratchpad.value = data.scratchpad;
+                mainPlan.value = data.main_plan;
+                if (!data.agent_running) {
+                    runAgentButton.disabled = false;
+                    stopAgentButton.disabled = true;
+                    clearInterval(statusInterval);
+                    alert("Agent has finished its task.");
+                }
+            });
+    }
+
+    // Other sidebar functions
     fixErrorButton.addEventListener('click', async () => {
         const lastModelResponse = conversationHistory[conversationHistory.length - 1];
         if (lastModelResponse && lastModelResponse.role === 'model') {
@@ -113,7 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Index the codebase
     indexButton.addEventListener('click', () => {
         indexingStatus.textContent = 'Indexing...';
         fetch('http://localhost:5000/index', { method: 'POST' })
@@ -127,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Update scratchpad and main plan
     scratchpad.addEventListener('blur', () => updateState('scratchpad', scratchpad.value));
     mainPlan.addEventListener('blur', () => updateState('main_plan', mainPlan.value));
 

@@ -8,6 +8,7 @@ import json
 import datetime
 import chromadb
 from sentence_transformers import SentenceTransformer
+import threading
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(script_dir, '.env')
@@ -21,6 +22,10 @@ last_indexed_path = os.path.join(script_dir, 'last_indexed.json')
 
 app = Flask(__name__)
 CORS(app)
+
+# Agent state
+agent_thread = None
+agent_running = False
 
 # Initialize ChromaDB and Sentence Transformer
 client = chromadb.PersistentClient(path=chroma_db_path)
@@ -62,22 +67,17 @@ def list_files(path: str) -> str:
     except Exception as e:
         return str(e)
 
+def finish_task() -> str:
+    """Signals that the task is complete."""
+    global agent_running
+    agent_running = False
+    return "Task marked as complete. Agent stopped."
+
 tools = [
-    FunctionDeclaration(
-        name="read_file",
-        description="Reads the content of a file.",
-        parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]},
-    ),
-    FunctionDeclaration(
-        name="write_file",
-        description="Writes content to a file.",
-        parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]},
-    ),
-    FunctionDeclaration(
-        name="list_files",
-        description="Lists the files in a directory.",
-        parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
-    ),
+    FunctionDeclaration(name="read_file", description="Reads the content of a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]}),
+    FunctionDeclaration(name="write_file", description="Writes content to a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]}),
+    FunctionDeclaration(name="list_files", description="Lists the files in a directory.", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+    FunctionDeclaration(name="finish_task", description="Signals that the task is complete and stops the agent.", parameters={}),
 ]
 
 tool_config = Tool(function_declarations=tools)
@@ -85,8 +85,87 @@ tool_map = {
     "read_file": read_file,
     "write_file": write_file,
     "list_files": list_files,
+    "finish_task": finish_task,
 }
 
+# --- Agent Loop ---
+def agent_loop(goal: str, model_name: str):
+    global agent_running
+    agent_running = True
+
+    with open(main_plan_path, 'w') as f:
+        f.write(f"Goal: {goal}\n\nPlan:\n- ")
+
+    with open(scratchpad_path, 'w') as f:
+        f.write("Scratchpad:\n")
+
+    history = []
+    model = genai.GenerativeModel(model_name, tools=tool_config)
+    chat_session = model.start_chat(history=history)
+
+    while agent_running:
+        with open(main_plan_path, 'r') as f:
+            main_plan = f.read()
+        with open(scratchpad_path, 'r') as f:
+            scratchpad = f.read()
+
+        prompt = f"Main Plan:\n{main_plan}\n\nScratchpad:\n{scratchpad}\n\nBased on the above, what is the next single action to take? Use a tool to proceed."
+
+        response = chat_session.send_message(prompt)
+
+        if not response.function_calls:
+            with open(scratchpad_path, 'a') as f:
+                f.write(f"\n[AGENT]: {response.text}")
+            continue
+
+        function_call = response.function_calls[0]
+        tool_name = function_call.name
+        tool_args = {key: value for key, value in function_call.args.items()}
+
+        with open(scratchpad_path, 'a') as f:
+            f.write(f"\n[ACTION]: Calling tool {tool_name} with args {tool_args}")
+
+        if tool_name in tool_map:
+            tool_result = tool_map[tool_name](**tool_args)
+            with open(scratchpad_path, 'a') as f:
+                f.write(f"\n[TOOL RESULT]: {tool_result}")
+        else:
+            with open(scratchpad_path, 'a') as f:
+                f.write(f"\n[ERROR]: Unknown tool {tool_name}")
+
+@app.route('/execute_plan', methods=['POST'])
+def execute_plan():
+    global agent_thread, agent_running
+    if agent_running:
+        return jsonify({"error": "Agent is already running."}), 400
+
+    data = request.get_json()
+    goal = data.get('goal')
+    model_name = data.get('model', 'gemini-1.5-flash')
+    if not goal:
+        return jsonify({"error": "Goal is required."}), 400
+
+    agent_thread = threading.Thread(target=agent_loop, args=(goal, model_name))
+    agent_thread.start()
+    return jsonify({"status": "Agent started."}), 202
+
+@app.route('/stop_agent', methods=['POST'])
+def stop_agent():
+    global agent_running, agent_thread
+    if not agent_running:
+        return jsonify({"error": "Agent is not running."}), 400
+
+    agent_running = False
+    agent_thread.join()
+    return jsonify({"status": "Agent stopped."})
+
+@app.route('/status', methods=['GET'])
+def get_status():
+    with open(scratchpad_path, 'r') as f:
+        scratchpad = f.read()
+    with open(main_plan_path, 'r') as f:
+        main_plan = f.read()
+    return jsonify({"scratchpad": scratchpad, "main_plan": main_plan, "agent_running": agent_running})
 
 @app.route('/models', methods=['GET'])
 def get_models():
@@ -107,11 +186,8 @@ def index_codebase():
                 last_indexed = json.load(f)
 
         for root, dirs, files in os.walk('.'):
-            # Skip the .git and backend directories
-            if '.git' in dirs:
-                dirs.remove('.git')
-            if 'backend' in dirs:
-                dirs.remove('backend')
+            if '.git' in dirs: dirs.remove('.git')
+            if 'backend' in dirs: dirs.remove('backend')
 
             for file in files:
                 filepath = os.path.join(root, file)
@@ -123,23 +199,12 @@ def index_codebase():
                     with open(filepath, 'r', errors='ignore') as f:
                         content = f.read()
 
-                    # Chunk the content
-                    chunk_size = 1024
-                    chunks = [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)]
-
-                    # Generate and store embeddings
+                    chunks = [content[i:i+1024] for i in range(0, len(content), 1024)]
                     embeddings = embedding_model.encode(chunks)
                     ids = [f"{filepath}-{i}" for i in range(len(chunks))]
 
-                    # Remove old chunks for this file
                     collection.delete(where={"filepath": filepath})
-
-                    collection.add(
-                        embeddings=embeddings,
-                        documents=chunks,
-                        metadatas=[{"filepath": filepath} for _ in chunks],
-                        ids=ids
-                    )
+                    collection.add(embeddings=embeddings, documents=chunks, metadatas=[{"filepath": filepath} for _ in chunks], ids=ids)
                     last_indexed[filepath] = mtime
                 except Exception as e:
                     print(f"Error indexing {filepath}: {e}")
@@ -204,34 +269,23 @@ def chat():
     try:
         model = genai.GenerativeModel(model_name, tools=tool_config)
 
-        # Perform semantic search
         query_embedding = embedding_model.encode([message])
-        results = collection.query(
-            query_embeddings=query_embedding,
-            n_results=5
-        )
+        results = collection.query(query_embeddings=query_embedding, n_results=5)
 
-        # Build the prompt with conversation history and search results
         rag_context = "Relevant code snippets:\n"
         for i, doc in enumerate(results['documents'][0]):
-            rag_context += f"--- Snippet {i+1} from {results['metadatas'][0][i]['filepath']} ---\n"
-            rag_context += f"{doc}\n"
+            rag_context += f"--- Snippet {i+1} from {results['metadatas'][0][i]['filepath']} ---\n{doc}\n"
 
-        # Reconstruct the conversation history for the model
         history = reconstruct_history(conversation_history)
-
-        # Prepend the RAG context to the user's message
         full_message = f"{rag_context}\n{message}"
         history.append({"role": "user", "parts": [Part(text=full_message)]})
 
         chat_session = model.start_chat(history=history[:-1])
         response, history = execute_tool_loop(chat_session, history)
 
-        # Save the conversation
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         conversation_file = os.path.join(raw_conversations_path, f'{timestamp}.json')
         os.makedirs(raw_conversations_path, exist_ok=True)
-        # Convert Parts to dicts for JSON serialization
         serializable_history = [
             {"role": h["role"], "parts": [{"text": p.text} if p.text else {"function_call": {"name": p.function_call.name, "args": dict(p.function_call.args)}} if p.function_call else {"function_response": {"name": p.function_response.name, "response": dict(p.function_response.response)}} for p in h["parts"]]}
             for h in history
@@ -245,7 +299,6 @@ def chat():
 
 @app.route('/scratchpad', methods=['GET', 'POST'])
 def scratchpad():
-    """Manages the scratchpad."""
     if request.method == 'GET':
         with open(scratchpad_path, 'r') as f:
             return f.read()
@@ -257,7 +310,6 @@ def scratchpad():
 
 @app.route('/main_plan', methods=['GET', 'POST'])
 def main_plan():
-    """Manages the main plan."""
     if request.method == 'GET':
         with open(main_plan_path, 'r') as f:
             return f.read()
@@ -269,7 +321,6 @@ def main_plan():
 
 @app.route('/fix_error', methods=['POST'])
 def fix_error():
-    """Attempts to fix an error by sending it back to the AI."""
     data = request.get_json()
     model_name = data.get('model', 'gemini-1.5-flash')
     error_message = data.get('error_message')
@@ -280,10 +331,7 @@ def fix_error():
 
     try:
         model = genai.GenerativeModel(model_name, tools=tool_config)
-
-        # Reconstruct the conversation history for the model
         history = reconstruct_history(conversation_history)
-
         history.append({"role": "user", "parts": [Part(text=f"The previous response caused an error: {error_message}. Please try again.")]})
 
         chat_session = model.start_chat(history=history[:-1])
