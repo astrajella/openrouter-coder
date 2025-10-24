@@ -2,7 +2,7 @@
 
 import os
 import google.generativeai as genai
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 import json
@@ -49,7 +49,7 @@ except Exception as e:
 from .tools import tool_config
 from .agent import start_agent_loop, stop_agent_loop, is_agent_running
 from .rag import index_codebase, query_codebase
-from .gemma import reconstruct_history, execute_tool_loop, serializable_history
+from .gemma import reconstruct_history, handle_tool_calls, stream_chat_response, serializable_history
 
 # --- Agent Routes ---
 @app.route('/execute_plan', methods=['POST'])
@@ -130,18 +130,26 @@ def chat():
         history.append({"role": "user", "parts": [genai.protos.Part(text=full_message)]})
 
         chat_session = model.start_chat(history=history[:-1])
-        response, history = execute_tool_loop(chat_session, history)
 
+        # Handle tool calls first (non-streaming)
+        history_with_tool_calls = handle_tool_calls(chat_session, history)
+
+        # Now, create the generator for the streaming response
+        response_generator = stream_chat_response(chat_session, history_with_tool_calls)
+
+        # Before streaming, save the complete history
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         conversation_file = os.path.join(raw_conversations_path, f'{timestamp}.json')
         os.makedirs(raw_conversations_path, exist_ok=True)
-
         with open(conversation_file, 'w') as f:
-            json.dump(serializable_history(history), f, indent=2)
+            json.dump(serializable_history(history_with_tool_calls), f, indent=2)
 
-        return jsonify({"response": response.text, "history": serializable_history(history)})
+        return Response(response_generator, mimetype='text/event-stream')
+
     except Exception as e:
+        # This will catch errors during the initial setup, but not during the stream itself
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/fix_error', methods=['POST'])
 def fix_error():
@@ -159,9 +167,10 @@ def fix_error():
         history.append({"role": "user", "parts": [genai.protos.Part(text=f"The previous response caused an error: {error_message}. Please analyze the conversation and the error, then provide a corrected response or code.")]})
 
         chat_session = model.start_chat(history=history[:-1])
-        response, history = execute_tool_loop(chat_session, history)
+        history_with_tool_calls = handle_tool_calls(chat_session, history)
+        response_generator = stream_chat_response(chat_session, history_with_tool_calls)
 
-        return jsonify({"response": response.text, "history": serializable_history(history)})
+        return Response(response_generator, mimetype='text/event-stream')
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Coder</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 </head>
 <body>
     <div class="container">
@@ -38,12 +39,24 @@
             </div>
             <div class="state-management">
                 <h3>Scratchpad</h3>
+                <div id="scratchpad-md" class="markdown-body"></div>
                 <textarea id="scratchpad"></textarea>
                 <h3>Main Plan</h3>
+                <div id="main-plan-md" class="markdown-body"></div>
                 <textarea id="main-plan"></textarea>
             </div>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        marked.setOptions({
+            highlight: function(code, lang) {
+                const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+                return hljs.highlight(code, { language }).value;
+            }
+        });
+    </script>
     <script src="script.js"></script>
 </body>
 </html>
