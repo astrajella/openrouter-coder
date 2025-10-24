@@ -5,9 +5,11 @@ import docker
 from google.generativeai.protos import FunctionDeclaration, Tool, Schema, Type
 import requests
 import json
+import datetime
 
 # --- Pathing ---
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+knowledge_base_path = os.path.join(project_root, 'backend', 'knowledge_base.md')
 
 def get_safe_path(filepath: str) -> str:
     """Joins the provided path with the project root and normalizes it."""
@@ -116,6 +118,16 @@ def web_search(query: str) -> str:
     except Exception as e:
         return str(e)
 
+def record_learning(learning: str) -> str:
+    """Records a key learning or insight to the agent's long-term knowledge base."""
+    try:
+        with open(knowledge_base_path, 'a') as f:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"\n---\n**Learning recorded at {timestamp}:**\n{learning}\n")
+        return "Learning recorded successfully."
+    except Exception as e:
+        return str(e)
+
 def finish_task() -> str:
     """Signals that the task is complete."""
     from .agent import stop_agent_loop
@@ -127,92 +139,47 @@ tools = [
     FunctionDeclaration(
         name="read_file",
         description="Reads the content of a file.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "filepath": Schema(type=Type.STRING)
-            },
-            required=["filepath"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])
     ),
     FunctionDeclaration(
         name="write_file",
         description="Writes content to a file.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "filepath": Schema(type=Type.STRING),
-                "content": Schema(type=Type.STRING)
-            },
-            required=["filepath", "content"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING), "content": Schema(type=Type.STRING)}, required=["filepath", "content"])
     ),
     FunctionDeclaration(
         name="list_files",
         description="Lists the files in a directory.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "path": Schema(type=Type.STRING)
-            },
-            required=["path"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"path": Schema(type=Type.STRING)}, required=["path"])
     ),
     FunctionDeclaration(
         name="create_directory",
         description="Creates a new directory.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "path": Schema(type=Type.STRING)
-            },
-            required=["path"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"path": Schema(type=Type.STRING)}, required=["path"])
     ),
     FunctionDeclaration(
         name="delete_file",
         description="Deletes a file.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "filepath": Schema(type=Type.STRING)
-            },
-            required=["filepath"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])
     ),
     FunctionDeclaration(
         name="rename_file",
         description="Renames or moves a file or directory.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "old_filepath": Schema(type=Type.STRING),
-                "new_filepath": Schema(type=Type.STRING)
-            },
-            required=["old_filepath", "new_filepath"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"old_filepath": Schema(type=Type.STRING), "new_filepath": Schema(type=Type.STRING)}, required=["old_filepath", "new_filepath"])
     ),
     FunctionDeclaration(
         name="execute_python_code",
         description="Executes Python code in a sandboxed Docker container.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "code": Schema(type=Type.STRING)
-            },
-            required=["code"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"code": Schema(type=Type.STRING)}, required=["code"])
     ),
     FunctionDeclaration(
         name="web_search",
         description="Performs a web search to find information on a topic.",
-        parameters=Schema(
-            type=Type.OBJECT,
-            properties={
-                "query": Schema(type=Type.STRING)
-            },
-            required=["query"]
-        )
+        parameters=Schema(type=Type.OBJECT, properties={"query": Schema(type=Type.STRING)}, required=["query"])
+    ),
+    FunctionDeclaration(
+        name="record_learning",
+        description="Records a key learning to the agent's long-term knowledge base.",
+        parameters=Schema(type=Type.OBJECT, properties={"learning": Schema(type=Type.STRING)}, required=["learning"])
     ),
     FunctionDeclaration(
         name="finish_task",
@@ -231,5 +198,6 @@ tool_map = {
     "rename_file": rename_file,
     "execute_python_code": execute_python_code,
     "web_search": web_search,
+    "record_learning": record_learning,
     "finish_task": finish_task,
 }
