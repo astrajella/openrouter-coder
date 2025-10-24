@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Coder</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="chat-window">
+            <div class="chat-history"></div>
+            <div class="chat-input">
+                <textarea id="message-input" placeholder="Type your message here..."></textarea>
+                <button id="send-button">Send</button>
+            </div>
+        </div>
+        <div class="sidebar">
+            <div class="model-selection">
+                <label for="model-dropdown">Select a model:</label>
+                <select id="model-dropdown"></select>
+            </div>
+            <div class="human-in-the-loop">
+                <button id="fix-error-button">Fix Error</button>
+            </div>
+            <div class="state-management">
+                <h3>Scratchpad</h3>
+                <textarea id="scratchpad"></textarea>
+                <h3>Main Plan</h3>
+                <textarea id="main-plan"></textarea>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
