@@ -32,6 +32,7 @@ def agent_loop(goal: str, model_name: str):
 
         prompt = (
             f"You are an autonomous AI coder. Your current goal is to: {goal}\n\n"
+            "**IMPORTANT**: You MUST perform all file system operations exclusively within the `/workspace` directory. Any attempt to modify files outside of this directory will be blocked.\n\n"
             f"Here is your main plan:\n{main_plan}\n\n"
             f"Here is your scratchpad with recent actions and results:\n{scratchpad}\n\n"
             "Based on the above, what is the next single action to take? "
