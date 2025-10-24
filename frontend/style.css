@@ -68,6 +68,7 @@ body {
     padding: 20px;
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
 }
 
 .autonomous-mode, .model-selection, .human-in-the-loop, .indexing, .state-management {
@@ -149,6 +150,7 @@ body {
     padding: 10px;
     border-radius: 5px;
     animation: fadeIn 0.5s ease-in-out;
+    max-width: 90%;
 }
 
 .user-message {
@@ -161,10 +163,24 @@ body {
     align-self: flex-start;
 }
 
-.tool-message {
+.tool-call-message, .tool-result-message {
     background-color: #444;
     align-self: flex-start;
-    font-style: italic;
+    font-family: monospace;
+    font-size: 0.9em;
+    border-left: 3px solid #888;
+}
+
+.tool-call-message summary {
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.tool-result-message pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+    padding-top: 5px;
 }
 
 .loading-indicator-container {
