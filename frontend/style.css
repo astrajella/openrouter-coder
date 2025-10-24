@@ -112,6 +112,7 @@ body {
     margin-bottom: 10px;
     padding: 10px;
     border-radius: 5px;
+    animation: fadeIn 0.5s ease-in-out;
 }
 
 .user-message {
@@ -128,4 +129,29 @@ body {
     background-color: #444;
     align-self: flex-start;
     font-style: italic;
+}
+
+.loading-indicator-container {
+    display: none; /* Hidden by default */
+    justify-content: center;
+    padding: 10px;
+}
+
+.loading-indicator {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #3498db;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
