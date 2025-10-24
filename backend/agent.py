@@ -36,13 +36,13 @@ def agent_loop(goal: str, model_name: str):
         prompt = (
             f"You are an autonomous AI coder. Your current goal is to: {goal}\n\n"
             "**IMPORTANT RULES**:\n"
-            "1. You MUST perform all file system operations exclusively within the `/workspace` directory. Any attempt to modify files outside of this directory will be blocked.\n"
-            "2. Before executing any critical or potentially destructive action (like `write_file`, `delete_file`, `rename_file`, or `execute_python_code`), you MUST use the `request_confirmation` tool to ask for user approval.\n\n"
+            "1. You MUST perform all file system operations exclusively within the `/workspace` directory.\n"
+            "2. Before executing any critical action (like `write_file`, `delete_file`, `rename_file`, or `execute_python_code`), you MUST use the `request_confirmation` tool.\n"
+            "3. For complex tasks requiring a high-level understanding of a project's architecture, use the `generate_project_blueprint` tool at the beginning of your work.\n\n"
             f"Here is your main plan:\n{main_plan}\n\n"
             f"Here is your scratchpad with recent actions and results:\n{scratchpad}\n\n"
             "Based on the above, what is the next single action to take? "
-            "If you believe the main goal is complete, first use the `record_learning` tool to save any important patterns, solutions, or insights you discovered. "
-            "After recording your learnings, you can then use the `finish_task` tool."
+            "If you believe the main goal is complete, first `record_learning` to save any important insights, then use `finish_task`."
         )
 
         response = chat_session.send_message(prompt)

@@ -6,6 +6,7 @@ from google.generativeai.protos import FunctionDeclaration, Tool, Schema, Type
 import requests
 import json
 import datetime
+import google.generativeai as genai
 
 # --- Pathing and Safeguards ---
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,6 +36,7 @@ def get_safe_path(filepath: str) -> str:
     return os.path.normpath(os.path.join(project_root, filepath))
 
 # --- Tool Definitions ---
+
 def read_file(filepath: str) -> str:
     """Reads the content of a file."""
     try:
@@ -177,11 +179,55 @@ def request_confirmation(prompt: str) -> str:
     from .agent import pause_for_confirmation
     return pause_for_confirmation(prompt)
 
+def generate_project_blueprint(target_directory: str) -> str:
+    """Analyzes a directory and generates a high-level project blueprint."""
+    safe_path = get_safe_path(target_directory)
+    if not os.path.normpath(safe_path).startswith(os.path.normpath(workspace_path)):
+        return "Error: Can only generate a blueprint for a directory within the workspace."
+
+    try:
+        aggregated_content = ""
+        file_tree = ""
+        for root, dirs, files in os.walk(safe_path):
+            # Exclude common non-source directories
+            dirs[:] = [d for d in dirs if d not in ['node_modules', '__pycache__', '.git']]
+
+            relative_root = os.path.relpath(root, safe_path)
+            if relative_root == '.':
+                relative_root = ''
+
+            for name in dirs:
+                file_tree += f"{relative_root}/{name}/\n"
+            for name in files:
+                file_tree += f"{relative_root}/{name}\n"
+                try:
+                    with open(os.path.join(root, name), 'r', errors='ignore') as f:
+                        aggregated_content += f"--- FILE: {relative_root}/{name} ---\n{f.read()}\n\n"
+                except Exception:
+                    continue
+
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(
+            f"Analyze the following codebase, summarized below, and generate a concise 'Project Blueprint'. "
+            f"Describe the overall architecture, the purpose of each key component/directory, and how they interact. "
+            f"Focus on data flow, state management, and the main business logic.\n\n"
+            f"File Tree:\n{file_tree}\n\n"
+            f"Aggregated Content:\n{aggregated_content}"
+        )
+
+        blueprint = response.text
+        record_learning(f"Project Blueprint for {target_directory}:\n{blueprint}")
+        return f"Project blueprint generated and saved to knowledge base."
+
+    except Exception as e:
+        return f"Error generating project blueprint: {e}"
+
 def finish_task() -> str:
     """Signals that the task is complete."""
     from .agent import stop_agent_loop
     stop_agent_loop()
     return "Task marked as complete. Agent stopped."
+
 
 # --- Tool Configuration ---
 tools = [
@@ -195,10 +241,11 @@ tools = [
     FunctionDeclaration(name="web_search", description="Performs a web search.", parameters=Schema(type=Type.OBJECT, properties={"query": Schema(type=Type.STRING)}, required=["query"])),
     FunctionDeclaration(name="record_learning", description="Records a key learning to the agent's long-term knowledge base.", parameters=Schema(type=Type.OBJECT, properties={"learning": Schema(type=Type.STRING)}, required=["learning"])),
     FunctionDeclaration(name="request_confirmation", description="Asks the user for confirmation before a critical action.", parameters=Schema(type=Type.OBJECT, properties={"prompt": Schema(type=Type.STRING)}, required=["prompt"])),
+    FunctionDeclaration(name="generate_project_blueprint", description="Analyzes a directory to generate a high-level project blueprint.", parameters=Schema(type=Type.OBJECT, properties={"target_directory": Schema(type=Type.STRING)}, required=["target_directory"])),
     FunctionDeclaration(name="finish_task", description="Signals that the task is complete.", parameters=Schema(type=Type.OBJECT, properties={})),
 ]
 
 tool_config = Tool(function_declarations=tools)
 tool_map = {
-    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "web_search": web_search, "record_learning": record_learning, "request_confirmation": request_confirmation, "finish_task": finish_task,
+    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "web_search": web_search, "record_learning": record_learning, "request_confirmation": request_confirmation, "generate_project_blueprint": generate_project_blueprint, "finish_task": finish_task,
 }
