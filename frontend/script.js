@@ -15,9 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let conversationHistory = [];
     let statusInterval;
+    const API_BASE_URL = '/';
 
     // Fetch and populate the models
-    fetch('http://localhost:5000/models')
+    fetch(`${API_BASE_URL}models`)
         .then(response => response.json())
         .then(models => {
             models.forEach(model => {
@@ -29,8 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
     // Fetch and populate the scratchpad and main plan
-    fetch('http://localhost:5000/scratchpad').then(response => response.text()).then(text => scratchpad.value = text);
-    fetch('http://localhost:5000/main_plan').then(response => response.text()).then(text => mainPlan.value = text);
+    fetch(`${API_BASE_URL}scratchpad`).then(response => response.text()).then(text => scratchpad.value = text);
+    fetch(`${API_BASE_URL}main_plan`).then(response => response.text()).then(text => mainPlan.value = text);
 
     // Send a message
     sendButton.addEventListener('click', () => {
@@ -45,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         messageInput.value = '';
         loadingIndicator.style.display = 'flex';
 
-        fetch('http://localhost:5000/chat', {
+        fetch(`${API_BASE_URL}chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -70,12 +71,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 appendMessage('user', part.text);
             } else if (turn.role === 'model') {
                 if (part.function_call) {
-                    appendMessage('tool', `Tool Call: ${part.function_call.name}(${JSON.stringify(part.function_call.args)})`);
+                    const fc = part.function_call;
+                    const details = `<details><summary>Tool Call: ${fc.name}</summary><pre>${JSON.stringify(fc.args, null, 2)}</pre></details>`;
+                    appendStructuredMessage('tool-call', details);
                 } else {
                     appendMessage('model', part.text);
                 }
             } else if (turn.role === 'tool') {
-                appendMessage('tool', `Tool Result: ${part.function_response.response.result}`);
+                const fr = part.function_response;
+                const details = `<details open><summary>Tool Result: ${fr.name}</summary><pre>${fr.response.result}</pre></details>`;
+                appendStructuredMessage('tool-result', details);
             }
         });
     }
@@ -88,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("Please enter a goal for the agent.");
             return;
         }
-        fetch('http://localhost:5000/execute_plan', {
+        fetch(`${API_BASE_URL}execute_plan`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ goal: goal, model: model })
@@ -100,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     stopAgentButton.addEventListener('click', () => {
-        fetch('http://localhost:5000/stop_agent', { method: 'POST' }).then(() => {
+        fetch(`${API_BASE_URL}stop_agent`, { method: 'POST' }).then(() => {
             runAgentButton.disabled = false;
             stopAgentButton.disabled = true;
             clearInterval(statusInterval);
@@ -108,7 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function pollStatus() {
-        fetch('http://localhost:5000/status')
+        fetch(`${API_BASE_URL}status`)
             .then(response => response.json())
             .then(data => {
                 scratchpad.value = data.scratchpad;
@@ -129,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const errorMessage = prompt("Enter the error message:");
             if (errorMessage) {
                 loadingIndicator.style.display = 'flex';
-                fetch('http://localhost:5000/fix_error', {
+                fetch(`${API_BASE_URL}fix_error`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -152,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     indexButton.addEventListener('click', () => {
         indexingStatus.textContent = 'Indexing...';
-        fetch('http://localhost:5000/index', { method: 'POST' })
+        fetch(`${API_BASE_URL}index`, { method: 'POST' })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
@@ -167,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
     mainPlan.addEventListener('blur', () => updateState('main_plan', mainPlan.value));
 
     function updateState(endpoint, content) {
-        fetch(`http://localhost:5000/${endpoint}`, {
+        fetch(`${API_BASE_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: content })
@@ -178,6 +183,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageElement = document.createElement('div');
         messageElement.classList.add('message', `${sender}-message`);
         messageElement.textContent = message;
+        chatHistory.appendChild(messageElement);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+        return messageElement;
+    }
+
+    function appendStructuredMessage(type, html) {
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('message', `${type}-message`);
+        messageElement.innerHTML = html;
         chatHistory.appendChild(messageElement);
         chatHistory.scrollTop = chatHistory.scrollHeight;
         return messageElement;
