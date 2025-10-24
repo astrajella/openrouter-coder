@@ -9,6 +9,7 @@ import datetime
 import chromadb
 from sentence_transformers import SentenceTransformer
 import threading
+import docker
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(script_dir, '.env')
@@ -26,6 +27,16 @@ CORS(app)
 # Agent state
 agent_thread = None
 agent_running = False
+
+# Docker state
+docker_client = docker.from_env()
+docker_image = None
+
+def build_docker_image():
+    global docker_image
+    print("Building Docker image...")
+    docker_image, _ = docker_client.images.build(path=".", dockerfile="Dockerfile")
+    print("Docker image built.")
 
 # Initialize ChromaDB and Sentence Transformer
 client = chromadb.PersistentClient(path=chroma_db_path)
@@ -67,6 +78,34 @@ def list_files(path: str) -> str:
     except Exception as e:
         return str(e)
 
+def execute_python_code(code: str) -> str:
+    """Executes Python code in a sandboxed Docker container."""
+    global docker_image
+    if not docker_image:
+        return "Docker image not built yet. Please wait."
+
+    temp_code_path = os.path.join(os.getcwd(), "temp_code.py")
+    try:
+        with open(temp_code_path, "w") as f:
+            f.write(code)
+
+        container = docker_client.containers.run(
+            docker_image.id,
+            volumes={temp_code_path: {'bind': '/app/temp_code.py', 'mode': 'ro'}},
+            detach=True
+        )
+        container.wait()
+        logs = container.logs()
+        container.remove()
+
+        return logs.decode('utf-8')
+    except Exception as e:
+        return str(e)
+    finally:
+        if os.path.exists(temp_code_path):
+            os.remove(temp_code_path)
+
+
 def finish_task() -> str:
     """Signals that the task is complete."""
     global agent_running
@@ -77,6 +116,7 @@ tools = [
     FunctionDeclaration(name="read_file", description="Reads the content of a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]}),
     FunctionDeclaration(name="write_file", description="Writes content to a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]}),
     FunctionDeclaration(name="list_files", description="Lists the files in a directory.", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+    FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters={"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}),
     FunctionDeclaration(name="finish_task", description="Signals that the task is complete and stops the agent.", parameters={}),
 ]
 
@@ -85,6 +125,7 @@ tool_map = {
     "read_file": read_file,
     "write_file": write_file,
     "list_files": list_files,
+    "execute_python_code": execute_python_code,
     "finish_task": finish_task,
 }
 
@@ -347,5 +388,6 @@ def fix_error():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
+    build_docker_image()
     print("Attempting to start Flask server...")
     app.run(debug=True, port=5000)
