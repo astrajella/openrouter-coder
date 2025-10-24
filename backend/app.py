@@ -19,7 +19,7 @@ load_dotenv(dotenv_path=dotenv_path)
 scratchpad_path = os.path.join(project_root, 'backend', 'scratchpad.md')
 main_plan_path = os.path.join(project_root, 'backend', 'main-plan.md')
 raw_conversations_path = os.path.join(project_root, 'raw-conversations')
-last_indexed_path = os.path.join(project_root, 'backend', 'last_indexed.json')
+
 
 app = Flask(__name__)
 CORS(app)
@@ -47,10 +47,7 @@ except Exception as e:
     print(f"An unexpected error occurred during genai.configure: {e}")
 
 # --- Module Imports ---
-from .tools import tool_config
-from .agent import start_agent_loop, stop_agent_loop, is_agent_running, get_agent_status, respond_to_confirmation
-from .rag import index_codebase, query_codebase
-from .gemma import reconstruct_history, handle_tool_calls, stream_chat_response, serializable_history
+from .agent import start_agent_loop, stop_agent_loop, is_agent_running, get_agent_state, provide_confirmation, update_state_manually
 
 # --- Agent Routes ---
 @app.route('/execute_plan', methods=['POST'])
@@ -64,41 +61,28 @@ def execute_plan():
     if not goal:
         return jsonify({"error": "Goal is required."}), 400
 
-    if start_agent_loop(goal, model_name):
-        return jsonify({"status": "Agent started."}), 202
-    else:
-        return jsonify({"error": "Failed to start agent."}), 500
+    start_agent_loop(model_name, goal)
+    return jsonify({"status": "Agent started."}), 202
+
 
 @app.route('/stop_agent', methods=['POST'])
 def stop_agent():
     if not is_agent_running():
         return jsonify({"error": "Agent is not running."}), 400
 
-    if stop_agent_loop():
-        return jsonify({"status": "Agent stopped."})
-    else:
-        return jsonify({"error": "Failed to stop agent."}), 500
+    stop_agent_loop()
+    return jsonify({"status": "Agent stopped."})
+
 
 @app.route('/status', methods=['GET'])
 def get_status():
-    try:
-        with open(scratchpad_path, 'r') as f:
-            scratchpad = f.read()
-    except FileNotFoundError:
-        scratchpad = ""
-    try:
-        with open(main_plan_path, 'r') as f:
-            main_plan = f.read()
-    except FileNotFoundError:
-        main_plan = ""
-
-    agent_status_info = get_agent_status()
+    agent_status_info = get_agent_state()
     return jsonify({
-        "scratchpad": scratchpad,
-        "main_plan": main_plan,
+        "main_plan": agent_status_info.get("main_plan"),
+        "scratchpad": agent_status_info.get("scratchpad"),
         "agent_running": is_agent_running(),
         "agent_status": agent_status_info.get("status"),
-        "confirmation_prompt": agent_status_info.get("prompt"),
+        "confirmation_prompt": agent_status_info.get("confirmation_prompt"),
         "auto_approve": auto_approve
     })
 
@@ -109,7 +93,7 @@ def handle_confirmation_response():
     if not response or response not in ['approve', 'deny']:
         return jsonify({"error": "Invalid response."}), 400
 
-    respond_to_confirmation(response)
+    provide_confirmation(response)
     return jsonify({"status": "Response received."})
 
 @app.route('/toggle_auto_approve', methods=['POST'])
@@ -118,7 +102,7 @@ def toggle_auto_approve():
     auto_approve = not auto_approve
     return jsonify({"auto_approve": auto_approve})
 
-# --- Model and RAG Routes ---
+# --- Model Routes ---
 @app.route('/models', methods=['GET'])
 def get_models():
     """Returns a list of available models."""
@@ -128,101 +112,15 @@ def get_models():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/index', methods=['POST'])
-def index_codebase_route():
-    result = index_codebase()
-    if "error" in result:
-        return jsonify(result), 500
-    return jsonify(result)
-
-# --- Chat Routes ---
-@app.route('/chat', methods=['POST'])
-def chat():
-    data = request.get_json()
-    model_name = data.get('model', 'gemini-1.5-flash')
-    message = data.get('message')
-    conversation_history = data.get('conversation_history', [])
-
-    if not message:
-        return jsonify({"error": "Message is required."}), 400
-
-    try:
-        model = genai.GenerativeModel(model_name, tools=tool_config)
-
-        rag_context = query_codebase(message)
-
-        history = reconstruct_history(conversation_history)
-        full_message = f"{rag_context}\\n\\nUser Question: {message}"
-        history.append({"role": "user", "parts": [genai.protos.Part(text=full_message)]})
-
-        chat_session = model.start_chat(history=history[:-1])
-
-        history_with_tool_calls = handle_tool_calls(chat_session, history)
-        response_generator = stream_chat_response(chat_session, history_with_tool_calls)
-
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        conversation_file = os.path.join(raw_conversations_path, f'{timestamp}.json')
-        os.makedirs(raw_conversations_path, exist_ok=True)
-        with open(conversation_file, 'w') as f:
-            json.dump(serializable_history(history_with_tool_calls), f, indent=2)
-
-        return Response(response_generator, mimetype='text/event-stream')
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/fix_error', methods=['POST'])
-def fix_error():
-    data = request.get_json()
-    model_name = data.get('model', 'gemini-1.5-flash')
-    error_message = data.get('error_message')
-    conversation_history = data.get('conversation_history', [])
-
-    if not error_message:
-        return jsonify({"error": "Error message is required."}), 400
-
-    try:
-        model = genai.GenerativeModel(model_name, tools=tool_config)
-        history = reconstruct_history(conversation_history)
-        history.append({"role": "user", "parts": [genai.protos.Part(text=f"The previous response caused an error: {error_message}. Please analyze the conversation and the error, then provide a corrected response or code.")]})
-
-        chat_session = model.start_chat(history=history[:-1])
-        history_with_tool_calls = handle_tool_calls(chat_session, history)
-        response_generator = stream_chat_response(chat_session, history_with_tool_calls)
-
-        return Response(response_generator, mimetype='text/event-stream')
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # --- State Persistence Routes ---
-@app.route('/scratchpad', methods=['GET', 'POST'])
-def scratchpad():
-    if request.method == 'GET':
-        try:
-            with open(scratchpad_path, 'r') as f:
-                return f.read()
-        except FileNotFoundError:
-            return ""
-    elif request.method == 'POST':
-        data = request.get_json()
-        with open(scratchpad_path, 'w') as f:
-            f.write(data.get('content', ''))
-        return jsonify({"status": "success"})
+@app.route('/update_state', methods=['POST'])
+def update_state():
+    data = request.get_json()
+    new_plan = data.get('main_plan')
+    new_scratchpad = data.get('scratchpad')
+    update_state_manually(new_plan, new_scratchpad)
+    return jsonify({"status": "State updated successfully."})
 
-@app.route('/main_plan', methods=['GET', 'POST'])
-def main_plan():
-    if request.method == 'GET':
-        try:
-            with open(main_plan_path, 'r') as f:
-                return f.read()
-        except FileNotFoundError:
-            return ""
-    elif request.method == 'POST':
-        data = request.get_json()
-        with open(main_plan_path, 'w') as f:
-            f.write(data.get('content', ''))
-        return jsonify({"status": "success"})
 
 if __name__ == '__main__':
     build_docker_image()
