@@ -7,9 +7,28 @@ import requests
 import json
 import datetime
 
-# --- Pathing ---
+# --- Pathing and Safeguards ---
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 knowledge_base_path = os.path.join(project_root, 'backend', 'knowledge_base.md')
+workspace_path = os.path.join(project_root, 'workspace')
+
+PROTECTED_PATHS = [
+    os.path.normpath(os.path.join(project_root, 'backend')),
+    os.path.normpath(os.path.join(project_root, 'frontend')),
+    os.path.normpath(os.path.join(project_root, 'tests')),
+    os.path.normpath(os.path.join(project_root, 'docker-compose.yml')),
+    os.path.normpath(os.path.join(project_root, 'Dockerfile.sandbox')),
+    os.path.normpath(os.path.join(project_root, 'setup.sh')),
+    os.path.normpath(os.path.join(project_root, 'requirements.txt')),
+]
+
+def is_protected(path: str) -> bool:
+    """Checks if a path is within a protected directory."""
+    normalized_path = os.path.normpath(path)
+    for protected in PROTECTED_PATHS:
+        if os.path.commonpath([normalized_path, protected]) == protected:
+            return True
+    return False
 
 def get_safe_path(filepath: str) -> str:
     """Joins the provided path with the project root and normalizes it."""
@@ -26,9 +45,11 @@ def read_file(filepath: str) -> str:
         return str(e)
 
 def write_file(filepath: str, content: str) -> str:
-    """Writes content to a file."""
+    """Writes content to a file, if not protected."""
+    safe_path = get_safe_path(filepath)
+    if is_protected(safe_path):
+        return "Error: Permission Denied. Cannot write to a protected system file."
     try:
-        safe_path = get_safe_path(filepath)
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         with open(safe_path, 'w') as f:
             f.write(content)
@@ -42,48 +63,51 @@ def list_files(path: str) -> str:
         safe_path = get_safe_path(path)
         tree = {}
         for root, dirs, files in os.walk(safe_path):
-            # Find the current position in the tree
             current_level = tree
             rel_path = os.path.relpath(root, safe_path)
             if rel_path != ".":
                 for part in rel_path.split(os.sep):
                     current_level = current_level.setdefault(part, {})
 
-            # Add files and directories
             for d in dirs:
                 current_level.setdefault(d, {})
             for f in files:
-                current_level[f] = None # Using None to indicate a file
+                current_level[f] = None
 
         return json.dumps(tree, indent=2)
 
     except Exception as e:
         return str(e)
 
-
 def create_directory(path: str) -> str:
-    """Creates a new directory."""
+    """Creates a new directory, if not protected."""
+    safe_path = get_safe_path(path)
+    if is_protected(safe_path):
+        return "Error: Permission Denied. Cannot create a directory in a protected location."
     try:
-        safe_path = get_safe_path(path)
         os.makedirs(safe_path, exist_ok=True)
         return f"Directory '{path}' created successfully."
     except Exception as e:
         return str(e)
 
 def delete_file(filepath: str) -> str:
-    """Deletes a file."""
+    """Deletes a file, if not protected."""
+    safe_path = get_safe_path(filepath)
+    if is_protected(safe_path):
+        return "Error: Permission Denied. Cannot delete a protected system file."
     try:
-        safe_path = get_safe_path(filepath)
         os.remove(safe_path)
         return f"File '{filepath}' deleted successfully."
     except Exception as e:
         return str(e)
 
 def rename_file(old_filepath: str, new_filepath: str) -> str:
-    """Renames or moves a file or directory."""
+    """Renames or moves a file or directory, if not protected."""
+    safe_old_path = get_safe_path(old_filepath)
+    safe_new_path = get_safe_path(new_filepath)
+    if is_protected(safe_old_path) or is_protected(safe_new_path):
+        return "Error: Permission Denied. Cannot rename or move protected system files."
     try:
-        safe_old_path = get_safe_path(old_filepath)
-        safe_new_path = get_safe_path(new_filepath)
         os.rename(safe_old_path, safe_new_path)
         return f"'{old_filepath}' renamed to '{new_filepath}' successfully."
     except Exception as e:
@@ -95,14 +119,14 @@ def execute_python_code(code: str) -> str:
     if not docker_image:
         return "Docker image not built yet. Please wait."
 
-    temp_code_path = os.path.join(project_root, "temp_code.py")
+    temp_code_path = os.path.join(workspace_path, "temp_code.py")
     try:
         with open(temp_code_path, "w") as f:
             f.write(code)
 
         container = docker_client.containers.run(
             docker_image.id,
-            volumes={temp_code_path: {'bind': '/app/temp_code.py', 'mode': 'ro'}},
+            volumes={os.path.abspath(temp_code_path): {'bind': '/app/temp_code.py', 'mode': 'ro'}},
             detach=True
         )
         container.wait()
@@ -153,68 +177,19 @@ def finish_task() -> str:
 
 # --- Tool Configuration ---
 tools = [
-    FunctionDeclaration(
-        name="read_file",
-        description="Reads the content of a file.",
-        parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])
-    ),
-    FunctionDeclaration(
-        name="write_file",
-        description="Writes content to a file.",
-        parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING), "content": Schema(type=Type.STRING)}, required=["filepath", "content"])
-    ),
-    FunctionDeclaration(
-        name="list_files",
-        description="Lists the files in a directory recursively and returns a JSON tree.",
-        parameters=Schema(type=Type.OBJECT, properties={"path": Schema(type=Type.STRING)}, required=["path"])
-    ),
-    FunctionDeclaration(
-        name="create_directory",
-        description="Creates a new directory.",
-        parameters=Schema(type=Type.OBJECT, properties={"path": Schema(type=Type.STRING)}, required=["path"])
-    ),
-    FunctionDeclaration(
-        name="delete_file",
-        description="Deletes a file.",
-        parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])
-    ),
-    FunctionDeclaration(
-        name="rename_file",
-        description="Renames or moves a file or directory.",
-        parameters=Schema(type=Type.OBJECT, properties={"old_filepath": Schema(type=Type.STRING), "new_filepath": Schema(type=Type.STRING)}, required=["old_filepath", "new_filepath"])
-    ),
-    FunctionDeclaration(
-        name="execute_python_code",
-        description="Executes Python code in a sandboxed Docker container.",
-        parameters=Schema(type=Type.OBJECT, properties={"code": Schema(type=Type.STRING)}, required=["code"])
-    ),
-    FunctionDeclaration(
-        name="web_search",
-        description="Performs a web search to find information on a topic.",
-        parameters=Schema(type=Type.OBJECT, properties={"query": Schema(type=Type.STRING)}, required=["query"])
-    ),
-    FunctionDeclaration(
-        name="record_learning",
-        description="Records a key learning to the agent's long-term knowledge base.",
-        parameters=Schema(type=Type.OBJECT, properties={"learning": Schema(type=Type.STRING)}, required=["learning"])
-    ),
-    FunctionDeclaration(
-        name="finish_task",
-        description="Signals that the task is complete and stops the agent.",
-        parameters=Schema(type=Type.OBJECT, properties={})
-    ),
+    FunctionDeclaration(name="read_file", description="Reads the content of a file.", parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])),
+    FunctionDeclaration(name="write_file", description="Writes content to a file in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING), "content": Schema(type=Type.STRING)}, required=["filepath", "content"])),
+    FunctionDeclaration(name="list_files", description="Lists the files in a directory recursively.", parameters=Schema(type=Type.OBJECT, properties={"path": Schema(type=Type.STRING)}, required=["path"])),
+    FunctionDeclaration(name="create_directory", description="Creates a new directory in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"path": Schema(type=Type.STRING)}, required=["path"])),
+    FunctionDeclaration(name="delete_file", description="Deletes a file in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])),
+    FunctionDeclaration(name="rename_file", description="Renames or moves a file in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"old_filepath": Schema(type=Type.STRING), "new_filepath": Schema(type=Type.STRING)}, required=["old_filepath", "new_filepath"])),
+    FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters=Schema(type=Type.OBJECT, properties={"code": Schema(type=Type.STRING)}, required=["code"])),
+    FunctionDeclaration(name="web_search", description="Performs a web search.", parameters=Schema(type=Type.OBJECT, properties={"query": Schema(type=Type.STRING)}, required=["query"])),
+    FunctionDeclaration(name="record_learning", description="Records a key learning to the agent's long-term knowledge base.", parameters=Schema(type=Type.OBJECT, properties={"learning": Schema(type=Type.STRING)}, required=["learning"])),
+    FunctionDeclaration(name="finish_task", description="Signals that the task is complete.", parameters=Schema(type=Type.OBJECT, properties={})),
 ]
 
 tool_config = Tool(function_declarations=tools)
 tool_map = {
-    "read_file": read_file,
-    "write_file": write_file,
-    "list_files": list_files,
-    "create_directory": create_directory,
-    "delete_file": delete_file,
-    "rename_file": rename_file,
-    "execute_python_code": execute_python_code,
-    "web_search": web_search,
-    "record_learning": record_learning,
-    "finish_task": finish_task,
+    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "web_search": web_search, "record_learning": record_learning, "finish_task": finish_task,
 }
