@@ -35,14 +35,19 @@ def agent_loop(goal: str, model_name: str):
 
         prompt = (
             f"You are an autonomous AI coder. Your current goal is to: {goal}\n\n"
-            "**IMPORTANT RULES**:\n"
-            "1. You MUST perform all file system operations exclusively within the `/workspace` directory.\n"
-            "2. Before executing any critical action (like `write_file`, `delete_file`, `rename_file`, or `execute_python_code`), you MUST use the `request_confirmation` tool.\n"
-            "3. For complex tasks requiring a high-level understanding of a project's architecture, use the `generate_project_blueprint` tool at the beginning of your work.\n\n"
+            "**IMPORTANT RULES & GUIDELINES**:\n"
+            "1. **Workspace**: You MUST perform all file system operations exclusively within the `/workspace` directory.\n"
+            "2. **Confirmation**: Before executing any critical action (like `write_file`, `delete_file`, `rename_file`, `execute_python_code`, or `execute_git_command` with `push`), you MUST use the `request_confirmation` tool.\n"
+            "3. **Blueprint**: For complex tasks, consider using the `generate_project_blueprint` tool at the beginning to understand the architecture.\n"
+            "4. **Git Workflow**: You MUST follow a standard Git workflow:\n"
+            "    a. Create a new branch for your task: `git branch <branch-name>`.\n"
+            "    b. Stage your changes: `git add <file-path>`.\n"
+            "    c. Commit your changes with a descriptive message: `git commit -m \"Your message\"`.\n"
+            "    d. Before finishing, push your branch to the remote: `git push origin <branch-name>`.\n\n"
             f"Here is your main plan:\n{main_plan}\n\n"
             f"Here is your scratchpad with recent actions and results:\n{scratchpad}\n\n"
             "Based on the above, what is the next single action to take? "
-            "If you believe the main goal is complete, first `record_learning` to save any important insights, then use `finish_task`."
+            "If the goal is complete, ensure you have pushed your changes, then `record_learning` and `finish_task`."
         )
 
         response = chat_session.send_message(prompt)

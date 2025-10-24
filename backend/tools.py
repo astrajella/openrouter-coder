@@ -7,6 +7,7 @@ import requests
 import json
 import datetime
 import google.generativeai as genai
+import git
 
 # --- Pathing and Safeguards ---
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -142,6 +143,28 @@ def execute_python_code(code: str) -> str:
         if os.path.exists(temp_code_path):
             os.remove(temp_code_path)
 
+def execute_git_command(command: str) -> str:
+    """Executes a whitelisted Git command."""
+    allowed_commands = ['status', 'diff', 'add', 'commit', 'branch', 'push']
+    command_parts = command.split()
+
+    if command_parts[0] not in allowed_commands:
+        return f"Error: Git command '{command_parts[0]}' is not allowed."
+
+    try:
+        repo = git.Repo(project_root)
+        # Special handling for commit to allow -m flag
+        if command_parts[0] == 'commit' and '-m' in command_parts:
+            msg_index = command_parts.index('-m') + 1
+            if msg_index < len(command_parts):
+                commit_message = command_parts[msg_index]
+                return repo.git.commit('-m', commit_message)
+
+        # General command execution
+        return getattr(repo.git, command_parts[0])(*command_parts[1:])
+    except Exception as e:
+        return str(e)
+
 def web_search(query: str) -> str:
     """Performs a web search using the Tavily API."""
     try:
@@ -162,7 +185,7 @@ def web_search(query: str) -> str:
         return str(e)
 
 def record_learning(learning: str) -> str:
-    """Records a key learning or insight to the agent's long-term knowledge base."""
+    """Records a key learning to the agent's long-term knowledge base."""
     try:
         with open(knowledge_base_path, 'a') as f:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -189,7 +212,6 @@ def generate_project_blueprint(target_directory: str) -> str:
         aggregated_content = ""
         file_tree = ""
         for root, dirs, files in os.walk(safe_path):
-            # Exclude common non-source directories
             dirs[:] = [d for d in dirs if d not in ['node_modules', '__pycache__', '.git']]
 
             relative_root = os.path.relpath(root, safe_path)
@@ -238,6 +260,7 @@ tools = [
     FunctionDeclaration(name="delete_file", description="Deletes a file in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])),
     FunctionDeclaration(name="rename_file", description="Renames or moves a file in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"old_filepath": Schema(type=Type.STRING), "new_filepath": Schema(type=Type.STRING)}, required=["old_filepath", "new_filepath"])),
     FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters=Schema(type=Type.OBJECT, properties={"code": Schema(type=Type.STRING)}, required=["code"])),
+    FunctionDeclaration(name="execute_git_command", description="Executes a whitelisted Git command.", parameters=Schema(type=Type.OBJECT, properties={"command": Schema(type=Type.STRING)}, required=["command"])),
     FunctionDeclaration(name="web_search", description="Performs a web search.", parameters=Schema(type=Type.OBJECT, properties={"query": Schema(type=Type.STRING)}, required=["query"])),
     FunctionDeclaration(name="record_learning", description="Records a key learning to the agent's long-term knowledge base.", parameters=Schema(type=Type.OBJECT, properties={"learning": Schema(type=Type.STRING)}, required=["learning"])),
     FunctionDeclaration(name="request_confirmation", description="Asks the user for confirmation before a critical action.", parameters=Schema(type=Type.OBJECT, properties={"prompt": Schema(type=Type.STRING)}, required=["prompt"])),
@@ -247,5 +270,5 @@ tools = [
 
 tool_config = Tool(function_declarations=tools)
 tool_map = {
-    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "web_search": web_search, "record_learning": record_learning, "request_confirmation": request_confirmation, "generate_project_blueprint": generate_project_blueprint, "finish_task": finish_task,
+    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "execute_git_command": execute_git_command, "web_search": web_search, "record_learning": record_learning, "request_confirmation": request_confirmation, "generate_project_blueprint": generate_project_blueprint, "finish_task": finish_task,
 }
