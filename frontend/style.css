@@ -34,6 +34,8 @@ body {
     border: 1px solid #444;
     padding: 10px;
     margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
 }
 
 .chat-input {
@@ -68,7 +70,7 @@ body {
     flex-direction: column;
 }
 
-.model-selection, .human-in-the-loop, .state-management {
+.model-selection, .human-in-the-loop, .indexing, .state-management {
     margin-bottom: 20px;
 }
 
@@ -86,7 +88,7 @@ body {
     resize: vertical;
 }
 
-#fix-error-button {
+#fix-error-button, #index-button {
     background-color: #dc3545;
     color: #fff;
     border: none;
@@ -94,6 +96,16 @@ body {
     border-radius: 5px;
     cursor: pointer;
     width: 100%;
+}
+
+#index-button {
+    background-color: #28a745;
+}
+
+#indexing-status {
+    margin-top: 10px;
+    font-size: 0.9em;
+    color: #aaa;
 }
 
 .message {
