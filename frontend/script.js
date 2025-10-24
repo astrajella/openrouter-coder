@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendButton = document.getElementById('send-button');
     const chatHistory = document.querySelector('.chat-history');
     const fixErrorButton = document.getElementById('fix-error-button');
+    const indexButton = document.getElementById('index-button');
+    const indexingStatus = document.getElementById('indexing-status');
     const scratchpad = document.getElementById('scratchpad');
     const mainPlan = document.getElementById('main-plan');
 
@@ -58,14 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .then(response => response.json())
         .then(data => {
-            if (data.tool_result) {
-                appendMessage('tool', data.tool_result);
-                // Send the tool result back to the AI
-                sendMessage(data.tool_result, model);
-            } else {
-                appendMessage('model', data.response);
-                conversationHistory.push({role: 'model', parts: [data.response]});
-            }
+            appendMessage('model', data.response);
+            conversationHistory.push({role: 'model', parts: [data.response]});
         });
     }
 
@@ -95,6 +91,22 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             alert("No model response to fix.");
         }
+    });
+
+    // Index the codebase
+    indexButton.addEventListener('click', () => {
+        indexingStatus.textContent = 'Indexing...';
+        fetch('http://localhost:5000/index', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                indexingStatus.textContent = 'Indexing complete!';
+            } else {
+                indexingStatus.textContent = 'Indexing failed.';
+            }
+        });
     });
 
     // Update scratchpad
