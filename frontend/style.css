@@ -163,6 +163,46 @@ body {
     align-self: flex-start;
 }
 
+/* --- Markdown Styles --- */
+.markdown-body {
+    border: 1px solid #444;
+    padding: 10px;
+    margin-top: 5px;
+    background-color: #2c2c2c;
+    border-radius: 5px;
+    overflow-y: auto;
+    height: 150px; /* Or match textarea height */
+}
+
+.markdown-body pre {
+    background-color: #1e1e1e;
+    padding: 10px;
+    border-radius: 5px;
+    overflow-x: auto;
+}
+
+.markdown-body code {
+    font-family: monospace;
+    background-color: #444;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+.markdown-body pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+    border-bottom: 1px solid #555;
+    padding-bottom: 5px;
+}
+/* Hide the raw textareas, we'll use them for data storage */
+#scratchpad, #main-plan {
+    display: none;
+}
+
+
 .tool-call-message, .tool-result-message {
     background-color: #444;
     align-self: flex-start;

@@ -7,17 +7,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const fixErrorButton = document.getElementById('fix-error-button');
     const indexButton = document.getElementById('index-button');
     const indexingStatus = document.getElementById('indexing-status');
-    const scratchpad = document.getElementById('scratchpad');
-    const mainPlan = document.getElementById('main-plan');
     const goalInput = document.getElementById('goal-input');
     const runAgentButton = document.getElementById('run-agent-button');
     const stopAgentButton = document.getElementById('stop-agent-button');
+
+    const scratchpadTextarea = document.getElementById('scratchpad');
+    const mainPlanTextarea = document.getElementById('main-plan');
+    const scratchpadMd = document.getElementById('scratchpad-md');
+    const mainPlanMd = document.getElementById('main-plan-md');
 
     let conversationHistory = [];
     let statusInterval;
     const API_BASE_URL = '/';
 
-    // Fetch and populate the models
     fetch(`${API_BASE_URL}models`)
         .then(response => response.json())
         .then(models => {
@@ -29,15 +31,26 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-    // Fetch and populate the scratchpad and main plan
-    fetch(`${API_BASE_URL}scratchpad`).then(response => response.text()).then(text => scratchpad.value = text);
-    fetch(`${API_BASE_URL}main_plan`).then(response => response.text()).then(text => mainPlan.value = text);
+    fetch(`${API_BASE_URL}scratchpad`).then(response => response.text()).then(text => {
+        scratchpadTextarea.value = text;
+        scratchpadMd.innerHTML = marked.parse(text);
+    });
+    fetch(`${API_BASE_URL}main_plan`).then(response => response.text()).then(text => {
+        mainPlanTextarea.value = text;
+        mainPlanMd.innerHTML = marked.parse(text);
+    });
 
-    // Send a message
     sendButton.addEventListener('click', () => {
         const message = messageInput.value;
         const selectedModel = modelDropdown.value;
         if (message) sendMessage(message, selectedModel);
+    });
+
+    messageInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendButton.click();
+        }
     });
 
     async function sendMessage(message, model) {
@@ -46,46 +59,71 @@ document.addEventListener('DOMContentLoaded', () => {
         messageInput.value = '';
         loadingIndicator.style.display = 'flex';
 
-        fetch(`${API_BASE_URL}chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: model,
-                message: message,
-                conversation_history: conversationHistory.slice(0, -1)
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            loadingIndicator.style.display = 'none';
-            conversationHistory = data.history;
-            renderHistory();
-        });
-    }
+        // Create a placeholder for the streaming model response
+        const modelMessageElement = appendMessage('model', '');
+        let fullResponse = '';
 
-    function renderHistory() {
-        chatHistory.innerHTML = '';
-        conversationHistory.forEach(turn => {
-            const part = turn.parts[0];
-            if (turn.role === 'user') {
-                appendMessage('user', part.text);
-            } else if (turn.role === 'model') {
-                if (part.function_call) {
-                    const fc = part.function_call;
-                    const details = `<details><summary>Tool Call: ${fc.name}</summary><pre>${JSON.stringify(fc.args, null, 2)}</pre></details>`;
-                    appendStructuredMessage('tool-call', details);
-                } else {
-                    appendMessage('model', part.text);
+        try {
+            const response = await fetch(`${API_BASE_URL}chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    message: message,
+                    conversation_history: conversationHistory.slice(0, -1)
+                })
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const rawSse = decoder.decode(value);
+                const sseMessages = rawSse.split('\\n\\n').filter(Boolean);
+
+                for (const sseMessage of sseMessages) {
+                    if (sseMessage.startsWith('data:')) {
+                        try {
+                            const dataStr = sseMessage.substring(5).trim();
+                            const data = JSON.parse(dataStr);
+                            if (data.chunk) {
+                                fullResponse += data.chunk;
+                                modelMessageElement.innerHTML = marked.parse(fullResponse);
+                                chatHistory.scrollTop = chatHistory.scrollHeight;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing SSE data:', e);
+                        }
+                    }
                 }
-            } else if (turn.role === 'tool') {
-                const fr = part.function_response;
-                const details = `<details open><summary>Tool Result: ${fr.name}</summary><pre>${fr.response.result}</pre></details>`;
-                appendStructuredMessage('tool-result', details);
             }
-        });
+        } catch (error) {
+            modelMessageElement.innerHTML = "Error fetching response.";
+            console.error('Fetch error:', error);
+        } finally {
+            loadingIndicator.style.display = 'none';
+            // Add the complete response to the history for the next turn
+            conversationHistory.push({ role: 'model', parts: [{ "text": fullResponse }] });
+        }
     }
 
-    // Agent Controls
+    // This function is now simplified, as history is rendered optimistically during streaming
+    function renderHistory() {
+        // Find the last model message element and update it with the final rendered markdown.
+        const modelMessages = chatHistory.querySelectorAll('.model-message');
+        if(modelMessages.length > 0) {
+            const lastModelMessage = modelMessages[modelMessages.length - 1];
+            const lastResponse = conversationHistory[conversationHistory.length - 1];
+            if(lastResponse && lastResponse.role === 'model'){
+                 lastModelMessage.innerHTML = marked.parse(lastResponse.parts[0].text);
+            }
+        }
+    }
+
+
     runAgentButton.addEventListener('click', () => {
         const goal = goalInput.value;
         const model = modelDropdown.value;
@@ -116,8 +154,11 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch(`${API_BASE_URL}status`)
             .then(response => response.json())
             .then(data => {
-                scratchpad.value = data.scratchpad;
-                mainPlan.value = data.main_plan;
+                scratchpadTextarea.value = data.scratchpad;
+                mainPlanTextarea.value = data.main_plan;
+                scratchpadMd.innerHTML = marked.parse(data.scratchpad);
+                mainPlanMd.innerHTML = marked.parse(data.main_plan);
+
                 if (!data.agent_running) {
                     runAgentButton.disabled = false;
                     stopAgentButton.disabled = true;
@@ -127,33 +168,63 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    // Other sidebar functions
     fixErrorButton.addEventListener('click', async () => {
+        // This function will also need to be adapted for streaming if used mid-conversation
+        // For now, it assumes a non-streaming fix, which might be simpler
         const lastModelResponse = conversationHistory[conversationHistory.length - 1];
         if (lastModelResponse && lastModelResponse.role === 'model') {
             const errorMessage = prompt("Enter the error message:");
             if (errorMessage) {
                 loadingIndicator.style.display = 'flex';
-                fetch(`${API_BASE_URL}fix_error`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        model: modelDropdown.value,
-                        error_message: errorMessage,
-                        conversation_history: conversationHistory
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
+                // Create a placeholder for the streaming model response
+                const modelMessageElement = appendMessage('model', '');
+                let fullResponse = '';
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}fix_error`, {
+                         method: 'POST',
+                         headers: { 'Content-Type': 'application/json' },
+                         body: JSON.stringify({
+                             model: modelDropdown.value,
+                             error_message: errorMessage,
+                             conversation_history: conversationHistory
+                         })
+                     });
+
+                     const reader = response.body.getReader();
+                     const decoder = new TextDecoder();
+
+                     while (true) {
+                         const { value, done } = await reader.read();
+                         if (done) break;
+
+                         const rawSse = decoder.decode(value);
+                         const sseMessages = rawSse.split('\\n\\n').filter(Boolean);
+
+                         for (const sseMessage of sseMessages) {
+                             if (sseMessage.startsWith('data:')) {
+                                 const dataStr = sseMessage.substring(5);
+                                 const data = JSON.parse(dataStr);
+                                 if (data.chunk) {
+                                     fullResponse += data.chunk;
+                                     modelMessageElement.innerHTML = marked.parse(fullResponse);
+                                     chatHistory.scrollTop = chatHistory.scrollHeight;
+                                 }
+                             }
+                         }
+                     }
+                } catch (e) {
+                    modelMessageElement.innerHTML = "Error fetching response.";
+                } finally {
                     loadingIndicator.style.display = 'none';
-                    conversationHistory = data.history;
-                    renderHistory();
-                });
+                    conversationHistory.push({ role: 'model', parts: [{ "text": fullResponse }] });
+                }
             }
         } else {
             alert("No model response to fix.");
         }
     });
+
 
     indexButton.addEventListener('click', () => {
         indexingStatus.textContent = 'Indexing...';
@@ -168,8 +239,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    scratchpad.addEventListener('blur', () => updateState('scratchpad', scratchpad.value));
-    mainPlan.addEventListener('blur', () => updateState('main_plan', mainPlan.value));
+    scratchpadTextarea.addEventListener('input', () => {
+        const content = scratchpadTextarea.value;
+        scratchpadMd.innerHTML = marked.parse(content);
+        updateState('scratchpad', content);
+    });
+
+    mainPlanTextarea.addEventListener('input', () => {
+        const content = mainPlanTextarea.value;
+        mainPlanMd.innerHTML = marked.parse(content);
+        updateState('main_plan', content);
+    });
 
     function updateState(endpoint, content) {
         fetch(`${API_BASE_URL}${endpoint}`, {
@@ -181,8 +261,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function appendMessage(sender, message) {
         const messageElement = document.createElement('div');
-        messageElement.classList.add('message', `${sender}-message`);
-        messageElement.textContent = message;
+        messageElement.classList.add('message', `${sender}-message`, 'markdown-body');
+        messageElement.innerHTML = marked.parse(message);
         chatHistory.appendChild(messageElement);
         chatHistory.scrollTop = chatHistory.scrollHeight;
         return messageElement;

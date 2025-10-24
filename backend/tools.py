@@ -3,6 +3,8 @@
 import os
 import docker
 from google.generativeai.protos import FunctionDeclaration, Tool
+import requests
+import json
 
 # --- Pathing ---
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,6 +69,25 @@ def execute_python_code(code: str) -> str:
         if os.path.exists(temp_code_path):
             os.remove(temp_code_path)
 
+def web_search(query: str) -> str:
+    """Performs a web search using the Tavily API."""
+    try:
+        api_key = os.environ.get("TAVILY_API_KEY")
+        if not api_key:
+            return "Error: TAVILY_API_KEY is not set."
+
+        response = requests.post("https://api.tavily.com/search", json={
+            "api_key": api_key,
+            "query": query,
+            "search_depth": "advanced",
+            "include_answer": True,
+            "max_results": 5
+        })
+        response.raise_for_status()
+        return json.dumps(response.json())
+    except Exception as e:
+        return str(e)
+
 def finish_task() -> str:
     """Signals that the task is complete."""
     from .agent import stop_agent_loop
@@ -79,6 +100,7 @@ tools = [
     FunctionDeclaration(name="write_file", description="Writes content to a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]}),
     FunctionDeclaration(name="list_files", description="Lists the files in a directory.", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
     FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters={"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}),
+    FunctionDeclaration(name="web_search", description="Performs a web search to find information on a topic.", parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}),
     FunctionDeclaration(name="finish_task", description="Signals that the task is complete and stops the agent.", parameters={}),
 ]
 
@@ -88,5 +110,6 @@ tool_map = {
     "write_file": write_file,
     "list_files": list_files,
     "execute_python_code": execute_python_code,
+    "web_search": web_search,
     "finish_task": finish_task,
 }
