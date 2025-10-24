@@ -37,12 +37,29 @@ def write_file(filepath: str, content: str) -> str:
         return str(e)
 
 def list_files(path: str) -> str:
-    """Lists the files in a directory."""
+    """Lists the files in a directory recursively and returns a JSON tree."""
     try:
         safe_path = get_safe_path(path)
-        return "\n".join(os.listdir(safe_path))
+        tree = {}
+        for root, dirs, files in os.walk(safe_path):
+            # Find the current position in the tree
+            current_level = tree
+            rel_path = os.path.relpath(root, safe_path)
+            if rel_path != ".":
+                for part in rel_path.split(os.sep):
+                    current_level = current_level.setdefault(part, {})
+
+            # Add files and directories
+            for d in dirs:
+                current_level.setdefault(d, {})
+            for f in files:
+                current_level[f] = None # Using None to indicate a file
+
+        return json.dumps(tree, indent=2)
+
     except Exception as e:
         return str(e)
+
 
 def create_directory(path: str) -> str:
     """Creates a new directory."""
@@ -148,7 +165,7 @@ tools = [
     ),
     FunctionDeclaration(
         name="list_files",
-        description="Lists the files in a directory.",
+        description="Lists the files in a directory recursively and returns a JSON tree.",
         parameters=Schema(type=Type.OBJECT, properties={"path": Schema(type=Type.STRING)}, required=["path"])
     ),
     FunctionDeclaration(

@@ -93,6 +93,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                 fullResponse += data.chunk;
                                 modelMessageElement.innerHTML = marked.parse(fullResponse);
                                 chatHistory.scrollTop = chatHistory.scrollHeight;
+                            } else if (data.history) {
+                                // Handle history update for tool calls
+                                conversationHistory = data.history;
+                                renderHistory();
                             }
                         } catch (e) {
                             console.error('Error parsing SSE data:', e);
@@ -110,14 +114,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderHistory() {
-        const modelMessages = chatHistory.querySelectorAll('.model-message');
-        if(modelMessages.length > 0) {
-            const lastModelMessage = modelMessages[modelMessages.length - 1];
-            const lastResponse = conversationHistory[conversationHistory.length - 1];
-            if(lastResponse && lastResponse.role === 'model'){
-                 lastModelMessage.innerHTML = marked.parse(lastResponse.parts[0].text);
+        chatHistory.innerHTML = '';
+        conversationHistory.forEach(turn => {
+            const part = turn.parts[0];
+            if (turn.role === 'user') {
+                appendMessage('user', part.text);
+            } else if (turn.role === 'model') {
+                if (part.function_call) {
+                    const fc = part.function_call;
+                    const details = `<details><summary>Tool Call: ${fc.name}</summary><pre>${JSON.stringify(fc.args, null, 2)}</pre></details>`;
+                    appendStructuredMessage('tool-call', details);
+                } else {
+                    appendMessage('model', part.text);
+                }
+            } else if (turn.role === 'tool') {
+                const fr = part.function_response;
+                if (fr.name === 'list_files') {
+                    try {
+                        const fileTree = JSON.parse(fr.response.result);
+                        const treeHtml = renderFileTree(fileTree);
+                        const details = `<details open><summary>Tool Result: ${fr.name}</summary><div class="file-tree">${treeHtml}</div></details>`;
+                        appendStructuredMessage('tool-result', details);
+                    } catch (e) {
+                        // Fallback for non-json output
+                        const details = `<details open><summary>Tool Result: ${fr.name}</summary><pre>${fr.response.result}</pre></details>`;
+                        appendStructuredMessage('tool-result', details);
+                    }
+                } else {
+                    const details = `<details open><summary>Tool Result: ${fr.name}</summary><pre>${fr.response.result}</pre></details>`;
+                    appendStructuredMessage('tool-result', details);
+                }
+            }
+        });
+    }
+
+    function renderFileTree(tree) {
+        let html = '<ul>';
+        for (const [name, value] of Object.entries(tree)) {
+            if (value === null) {
+                // It's a file
+                html += `<li><span class="file">${name}</span></li>`;
+            } else {
+                // It's a directory
+                html += `<li><details><summary class="folder">${name}</summary>${renderFileTree(value)}</details></li>`;
             }
         }
+        html += '</ul>';
+        return html;
     }
 
 
