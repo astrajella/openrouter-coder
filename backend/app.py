@@ -31,8 +31,8 @@ docker_image = None
 def build_docker_image():
     global docker_image
     print("Building Docker image...")
-    dockerfile_path = os.path.join(project_root, 'backend')
-    docker_image, _ = docker_client.images.build(path=dockerfile_path, dockerfile="Dockerfile")
+    dockerfile_path = os.path.join(project_root)
+    docker_image, _ = docker_client.images.build(path=dockerfile_path, dockerfile="Dockerfile.sandbox")
     print("Docker image built.")
 
 # --- Google AI Initialization ---
@@ -47,7 +47,7 @@ except Exception as e:
 
 # --- Module Imports ---
 from .tools import tool_config
-from .agent import start_agent_loop, stop_agent_loop, is_agent_running
+from .agent import start_agent_loop, stop_agent_loop, is_agent_running, get_agent_status
 from .rag import index_codebase, query_codebase
 from .gemma import reconstruct_history, handle_tool_calls, stream_chat_response, serializable_history
 
@@ -90,7 +90,12 @@ def get_status():
             main_plan = f.read()
     except FileNotFoundError:
         main_plan = ""
-    return jsonify({"scratchpad": scratchpad, "main_plan": main_plan, "agent_running": is_agent_running()})
+    return jsonify({
+        "scratchpad": scratchpad,
+        "main_plan": main_plan,
+        "agent_running": is_agent_running(),
+        "agent_status": get_agent_status()
+    })
 
 # --- Model and RAG Routes ---
 @app.route('/models', methods=['GET'])
@@ -131,13 +136,9 @@ def chat():
 
         chat_session = model.start_chat(history=history[:-1])
 
-        # Handle tool calls first (non-streaming)
         history_with_tool_calls = handle_tool_calls(chat_session, history)
-
-        # Now, create the generator for the streaming response
         response_generator = stream_chat_response(chat_session, history_with_tool_calls)
 
-        # Before streaming, save the complete history
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         conversation_file = os.path.join(raw_conversations_path, f'{timestamp}.json')
         os.makedirs(raw_conversations_path, exist_ok=True)
@@ -147,7 +148,6 @@ def chat():
         return Response(response_generator, mimetype='text/event-stream')
 
     except Exception as e:
-        # This will catch errors during the initial setup, but not during the stream itself
         return jsonify({"error": str(e)}), 500
 
 

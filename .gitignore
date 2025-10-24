@@ -1,3 +1,4 @@
 backend/.env
 backend.log
 backend/chroma_db/
+__pycache__/
