@@ -8,6 +8,9 @@ from .app import main_plan_path, scratchpad_path
 agent_thread = None
 agent_running = False
 agent_status = "Idle"
+confirmation_event = threading.Event()
+confirmation_prompt = ""
+user_response = ""
 
 def agent_loop(goal: str, model_name: str):
     global agent_running, agent_status
@@ -32,7 +35,9 @@ def agent_loop(goal: str, model_name: str):
 
         prompt = (
             f"You are an autonomous AI coder. Your current goal is to: {goal}\n\n"
-            "**IMPORTANT**: You MUST perform all file system operations exclusively within the `/workspace` directory. Any attempt to modify files outside of this directory will be blocked.\n\n"
+            "**IMPORTANT RULES**:\n"
+            "1. You MUST perform all file system operations exclusively within the `/workspace` directory. Any attempt to modify files outside of this directory will be blocked.\n"
+            "2. Before executing any critical or potentially destructive action (like `write_file`, `delete_file`, `rename_file`, or `execute_python_code`), you MUST use the `request_confirmation` tool to ask for user approval.\n\n"
             f"Here is your main plan:\n{main_plan}\n\n"
             f"Here is your scratchpad with recent actions and results:\n{scratchpad}\n\n"
             "Based on the above, what is the next single action to take? "
@@ -99,8 +104,24 @@ def stop_agent_loop():
     agent_status = "Idle"
     return True
 
+def pause_for_confirmation(prompt: str):
+    global agent_status, confirmation_prompt, user_response
+    agent_status = "PAUSED_FOR_CONFIRMATION"
+    confirmation_prompt = prompt
+    confirmation_event.clear()
+    confirmation_event.wait() # This will block until the user responds
+    return user_response
+
+def respond_to_confirmation(response: str):
+    global user_response
+    user_response = response
+    confirmation_event.set()
+
 def is_agent_running():
     return agent_running
 
 def get_agent_status():
-    return agent_status
+    global agent_status, confirmation_prompt
+    if agent_status == "PAUSED_FOR_CONFIRMATION":
+        return {"status": agent_status, "prompt": confirmation_prompt}
+    return {"status": agent_status}

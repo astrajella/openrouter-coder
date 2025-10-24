@@ -27,6 +27,7 @@ CORS(app)
 # --- Docker Initialization ---
 docker_client = docker.from_env()
 docker_image = None
+auto_approve = False
 
 def build_docker_image():
     global docker_image
@@ -47,7 +48,7 @@ except Exception as e:
 
 # --- Module Imports ---
 from .tools import tool_config
-from .agent import start_agent_loop, stop_agent_loop, is_agent_running, get_agent_status
+from .agent import start_agent_loop, stop_agent_loop, is_agent_running, get_agent_status, respond_to_confirmation
 from .rag import index_codebase, query_codebase
 from .gemma import reconstruct_history, handle_tool_calls, stream_chat_response, serializable_history
 
@@ -90,12 +91,32 @@ def get_status():
             main_plan = f.read()
     except FileNotFoundError:
         main_plan = ""
+
+    agent_status_info = get_agent_status()
     return jsonify({
         "scratchpad": scratchpad,
         "main_plan": main_plan,
         "agent_running": is_agent_running(),
-        "agent_status": get_agent_status()
+        "agent_status": agent_status_info.get("status"),
+        "confirmation_prompt": agent_status_info.get("prompt"),
+        "auto_approve": auto_approve
     })
+
+@app.route('/respond_to_confirmation', methods=['POST'])
+def handle_confirmation_response():
+    data = request.get_json()
+    response = data.get('response')
+    if not response or response not in ['approve', 'deny']:
+        return jsonify({"error": "Invalid response."}), 400
+
+    respond_to_confirmation(response)
+    return jsonify({"status": "Response received."})
+
+@app.route('/toggle_auto_approve', methods=['POST'])
+def toggle_auto_approve():
+    global auto_approve
+    auto_approve = not auto_approve
+    return jsonify({"auto_approve": auto_approve})
 
 # --- Model and RAG Routes ---
 @app.route('/models', methods=['GET'])
