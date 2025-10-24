@@ -30,7 +30,14 @@ def agent_loop(goal: str, model_name: str):
         with open(scratchpad_path, 'r') as f:
             scratchpad = f.read()
 
-        prompt = f"Main Plan:\\n{main_plan}\\n\\nScratchpad:\\n{scratchpad}\\n\\nBased on the above, what is the next single action to take? Use a tool to proceed."
+        prompt = (
+            f"You are an autonomous AI coder. Your current goal is to: {goal}\n\n"
+            f"Here is your main plan:\n{main_plan}\n\n"
+            f"Here is your scratchpad with recent actions and results:\n{scratchpad}\n\n"
+            "Based on the above, what is the next single action to take? "
+            "If you believe the main goal is complete, first use the `record_learning` tool to save any important patterns, solutions, or insights you discovered. "
+            "After recording your learnings, you can then use the `finish_task` tool."
+        )
 
         response = chat_session.send_message(prompt)
 
@@ -53,7 +60,6 @@ def agent_loop(goal: str, model_name: str):
                 with open(scratchpad_path, 'a') as f:
                     f.write(f"\\n[TOOL RESULT]: {tool_result}")
 
-                # Self-Correction Logic
                 if tool_name == 'execute_python_code' and "error" in tool_result.lower():
                     agent_status = "Debugging code..."
                     error_prompt = (

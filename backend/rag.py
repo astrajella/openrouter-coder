@@ -13,7 +13,7 @@ collection = client.get_or_create_collection("codebase")
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def index_codebase():
-    """Indexes the codebase."""
+    """Indexes the codebase, including the knowledge base."""
     try:
         last_indexed = {}
         if os.path.exists(last_indexed_path):
@@ -25,7 +25,6 @@ def index_codebase():
         current_files = set()
         for root, dirs, files in os.walk(project_root):
             if '.git' in dirs: dirs.remove('.git')
-            if 'backend' in dirs: dirs.remove('backend')
             for file in files:
                 rel_path = os.path.relpath(os.path.join(root, file), project_root)
                 current_files.add(rel_path)
@@ -34,11 +33,11 @@ def index_codebase():
         if deleted_files:
             collection.delete(where={"filepath": {"$in": list(deleted_files)}})
             for filepath in deleted_files:
-                del last_indexed[filepath]
+                if filepath in last_indexed:
+                    del last_indexed[filepath]
 
         for root, dirs, files in os.walk(project_root):
             if '.git' in dirs: dirs.remove('.git')
-            if 'backend' in dirs: dirs.remove('backend')
 
             for file in files:
                 filepath = os.path.join(root, file)
@@ -52,11 +51,14 @@ def index_codebase():
                         content = f.read()
 
                     chunks = [content[i:i+1024] for i in range(0, len(content), 1024)]
+                    if not chunks:
+                        continue
+
                     embeddings = embedding_model.encode(chunks)
                     ids = [f"{rel_path}-{i}" for i in range(len(chunks))]
 
                     collection.delete(where={"filepath": rel_path})
-                    collection.add(embeddings=embeddings, documents=chunks, metadatas=[{"filepath": rel_path} for _ in chunks], ids=ids)
+                    collection.add(embeddings=embeddings.tolist(), documents=chunks, metadatas=[{"filepath": rel_path} for _ in chunks], ids=ids)
                     last_indexed[rel_path] = mtime
                 except Exception as e:
                     print(f"Error indexing {filepath}: {e}")
@@ -73,7 +75,7 @@ def query_codebase(message: str, n_results: int = 5):
     query_embedding = embedding_model.encode([message])
     results = collection.query(query_embeddings=[query_embedding.tolist()], n_results=n_results)
 
-    rag_context = "Relevant code snippets:\\n"
+    rag_context = "Relevant code snippets and learnings:\\n"
     if results['documents']:
         for i, doc in enumerate(results['documents'][0]):
             rag_context += f"--- Snippet {i+1} from {results['metadatas'][0][i]['filepath']} ---\\n{doc}\\n"
