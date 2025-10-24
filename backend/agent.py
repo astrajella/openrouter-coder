@@ -13,14 +13,13 @@ def agent_loop(goal: str, model_name: str):
     agent_running = True
 
     with open(main_plan_path, 'w') as f:
-        f.write(f"Goal: {goal}\n\nPlan:\n- ")
+        f.write(f"Goal: {goal}\\n\\nPlan:\\n- ")
 
     with open(scratchpad_path, 'w') as f:
-        f.write("Scratchpad:\n")
+        f.write("Scratchpad:\\n")
 
-    history = []
     model = genai.GenerativeModel(model_name, tools=tool_config)
-    chat_session = model.start_chat(history=history)
+    chat_session = model.start_chat(history=[])
 
     while agent_running:
         with open(main_plan_path, 'r') as f:
@@ -28,7 +27,7 @@ def agent_loop(goal: str, model_name: str):
         with open(scratchpad_path, 'r') as f:
             scratchpad = f.read()
 
-        prompt = f"Main Plan:\n{main_plan}\n\nScratchpad:\n{scratchpad}\n\nBased on the above, what is the next single action to take? Use a tool to proceed."
+        prompt = f"Main Plan:\\n{main_plan}\\n\\nScratchpad:\\n{scratchpad}\\n\\nBased on the above, what is the next single action to take? Use a tool to proceed."
 
         response = chat_session.send_message(prompt)
 
@@ -48,6 +47,20 @@ def agent_loop(goal: str, model_name: str):
                 tool_result = tool_map[tool_name](**tool_args)
                 with open(scratchpad_path, 'a') as f:
                     f.write(f"\\n[TOOL RESULT]: {tool_result}")
+
+                # Self-Correction Logic
+                if tool_name == 'execute_python_code' and "error" in tool_result.lower():
+                    error_prompt = (
+                        f"The code execution failed with the following error:\\n{tool_result}\\n\\n"
+                        "Please analyze the error and the code that was executed. "
+                        "Then, use the file system tools to read the relevant files, "
+                        "propose a fix, write the changes to the file, and then try executing the code again."
+                    )
+                    with open(scratchpad_path, 'a') as f:
+                        f.write(f"\\n[DEBUG]: Entering self-correction mode due to error.")
+                    # We inject this prompt into the next turn
+                    chat_session.history.append(genai.protos.Part(text=error_prompt))
+
             else:
                 with open(scratchpad_path, 'a') as f:
                     f.write(f"\\n[ERROR]: Unknown tool {tool_name}")
