@@ -42,6 +42,34 @@ def list_files(path: str) -> str:
     except Exception as e:
         return str(e)
 
+def create_directory(path: str) -> str:
+    """Creates a new directory."""
+    try:
+        safe_path = get_safe_path(path)
+        os.makedirs(safe_path, exist_ok=True)
+        return f"Directory '{path}' created successfully."
+    except Exception as e:
+        return str(e)
+
+def delete_file(filepath: str) -> str:
+    """Deletes a file."""
+    try:
+        safe_path = get_safe_path(filepath)
+        os.remove(safe_path)
+        return f"File '{filepath}' deleted successfully."
+    except Exception as e:
+        return str(e)
+
+def rename_file(old_filepath: str, new_filepath: str) -> str:
+    """Renames or moves a file or directory."""
+    try:
+        safe_old_path = get_safe_path(old_filepath)
+        safe_new_path = get_safe_path(new_filepath)
+        os.rename(safe_old_path, safe_new_path)
+        return f"'{old_filepath}' renamed to '{new_filepath}' successfully."
+    except Exception as e:
+        return str(e)
+
 def execute_python_code(code: str) -> str:
     """Executes Python code in a sandboxed Docker container."""
     from .app import docker_image, docker_client
@@ -99,6 +127,9 @@ tools = [
     FunctionDeclaration(name="read_file", description="Reads the content of a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]}),
     FunctionDeclaration(name="write_file", description="Writes content to a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]}),
     FunctionDeclaration(name="list_files", description="Lists the files in a directory.", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+    FunctionDeclaration(name="create_directory", description="Creates a new directory.", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+    FunctionDeclaration(name="delete_file", description="Deletes a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]}),
+    FunctionDeclaration(name="rename_file", description="Renames or moves a file or directory.", parameters={"type": "object", "properties": {"old_filepath": {"type": "string"}, "new_filepath": {"type": "string"}}, "required": ["old_filepath", "new_filepath"]}),
     FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters={"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}),
     FunctionDeclaration(name="web_search", description="Performs a web search to find information on a topic.", parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}),
     FunctionDeclaration(name="finish_task", description="Signals that the task is complete and stops the agent.", parameters={}),
@@ -109,6 +140,9 @@ tool_map = {
     "read_file": read_file,
     "write_file": write_file,
     "list_files": list_files,
+    "create_directory": create_directory,
+    "delete_file": delete_file,
+    "rename_file": rename_file,
     "execute_python_code": execute_python_code,
     "web_search": web_search,
     "finish_task": finish_task,
