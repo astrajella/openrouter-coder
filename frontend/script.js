@@ -11,6 +11,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const runAgentButton = document.getElementById('run-agent-button');
     const stopAgentButton = document.getElementById('stop-agent-button');
     const agentStatusSpan = document.getElementById('agent-status');
+    const autoApproveSwitch = document.getElementById('auto-approve-switch');
+    const confirmationModal = document.getElementById('confirmation-modal');
+    const confirmationPrompt = document.getElementById('confirmation-prompt');
+    const approveButton = document.getElementById('approve-button');
+    const denyButton = document.getElementById('deny-button');
 
     const scratchpadTextarea = document.getElementById('scratchpad');
     const mainPlanTextarea = document.getElementById('main-plan');
@@ -54,6 +59,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    autoApproveSwitch.addEventListener('change', () => {
+        fetch(`${API_BASE_URL}toggle_auto_approve`, { method: 'POST' });
+    });
+
+    approveButton.addEventListener('click', () => respondToConfirmation('approve'));
+    denyButton.addEventListener('click', () => respondToConfirmation('deny'));
+
     async function sendMessage(message, model) {
         appendMessage('user', message);
         conversationHistory.push({role: 'user', parts: [{"text": message}]});
@@ -94,7 +106,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                 modelMessageElement.innerHTML = marked.parse(fullResponse);
                                 chatHistory.scrollTop = chatHistory.scrollHeight;
                             } else if (data.history) {
-                                // Handle history update for tool calls
                                 conversationHistory = data.history;
                                 renderHistory();
                             }
@@ -136,7 +147,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         const details = `<details open><summary>Tool Result: ${fr.name}</summary><div class="file-tree">${treeHtml}</div></details>`;
                         appendStructuredMessage('tool-result', details);
                     } catch (e) {
-                        // Fallback for non-json output
                         const details = `<details open><summary>Tool Result: ${fr.name}</summary><pre>${fr.response.result}</pre></details>`;
                         appendStructuredMessage('tool-result', details);
                     }
@@ -152,10 +162,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let html = '<ul>';
         for (const [name, value] of Object.entries(tree)) {
             if (value === null) {
-                // It's a file
                 html += `<li><span class="file">${name}</span></li>`;
             } else {
-                // It's a directory
                 html += `<li><details><summary class="folder">${name}</summary>${renderFileTree(value)}</details></li>`;
             }
         }
@@ -201,15 +209,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 scratchpadMd.innerHTML = marked.parse(data.scratchpad);
                 mainPlanMd.innerHTML = marked.parse(data.main_plan);
                 agentStatusSpan.textContent = data.agent_status;
+                autoApproveSwitch.checked = data.auto_approve;
+
+                if (data.agent_status === 'PAUSED_FOR_CONFIRMATION') {
+                    confirmationPrompt.textContent = data.confirmation_prompt;
+                    confirmationModal.style.display = 'flex';
+                } else {
+                    confirmationModal.style.display = 'none';
+                }
 
                 if (!data.agent_running) {
                     runAgentButton.disabled = false;
                     stopAgentButton.disabled = true;
                     agentStatusSpan.textContent = "Idle";
                     clearInterval(statusInterval);
-                    alert("Agent has finished its task.");
+                    if (data.agent_status !== 'PAUSED_FOR_CONFIRMATION') {
+                        alert("Agent has finished its task.");
+                    }
                 }
             });
+    }
+
+    function respondToConfirmation(response) {
+        fetch(`${API_BASE_URL}respond_to_confirmation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ response: response })
+        });
+        confirmationModal.style.display = 'none';
     }
 
     fixErrorButton.addEventListener('click', async () => {

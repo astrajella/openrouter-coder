@@ -169,6 +169,14 @@ def record_learning(learning: str) -> str:
     except Exception as e:
         return str(e)
 
+def request_confirmation(prompt: str) -> str:
+    """Requests user confirmation before proceeding with a critical action."""
+    from .app import auto_approve
+    if auto_approve:
+        return "Auto-approved."
+    from .agent import pause_for_confirmation
+    return pause_for_confirmation(prompt)
+
 def finish_task() -> str:
     """Signals that the task is complete."""
     from .agent import stop_agent_loop
@@ -186,10 +194,11 @@ tools = [
     FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters=Schema(type=Type.OBJECT, properties={"code": Schema(type=Type.STRING)}, required=["code"])),
     FunctionDeclaration(name="web_search", description="Performs a web search.", parameters=Schema(type=Type.OBJECT, properties={"query": Schema(type=Type.STRING)}, required=["query"])),
     FunctionDeclaration(name="record_learning", description="Records a key learning to the agent's long-term knowledge base.", parameters=Schema(type=Type.OBJECT, properties={"learning": Schema(type=Type.STRING)}, required=["learning"])),
+    FunctionDeclaration(name="request_confirmation", description="Asks the user for confirmation before a critical action.", parameters=Schema(type=Type.OBJECT, properties={"prompt": Schema(type=Type.STRING)}, required=["prompt"])),
     FunctionDeclaration(name="finish_task", description="Signals that the task is complete.", parameters=Schema(type=Type.OBJECT, properties={})),
 ]
 
 tool_config = Tool(function_declarations=tools)
 tool_map = {
-    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "web_search": web_search, "record_learning": record_learning, "finish_task": finish_task,
+    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "web_search": web_search, "record_learning": record_learning, "request_confirmation": request_confirmation, "finish_task": finish_task,
 }
