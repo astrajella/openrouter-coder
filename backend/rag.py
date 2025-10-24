@@ -7,7 +7,8 @@ from sentence_transformers import SentenceTransformer
 from .app import project_root, last_indexed_path
 
 # Initialize ChromaDB and Sentence Transformer
-client = chromadb.PersistentClient(path=os.path.join(project_root, 'backend', 'chroma_db'))
+# The host 'chroma' is the service name defined in docker-compose.yml
+client = chromadb.HttpClient(host='chroma', port=8000)
 collection = client.get_or_create_collection("codebase")
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 

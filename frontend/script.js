@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const goalInput = document.getElementById('goal-input');
     const runAgentButton = document.getElementById('run-agent-button');
     const stopAgentButton = document.getElementById('stop-agent-button');
+    const agentStatusSpan = document.getElementById('agent-status');
 
     const scratchpadTextarea = document.getElementById('scratchpad');
     const mainPlanTextarea = document.getElementById('main-plan');
@@ -59,7 +60,6 @@ document.addEventListener('DOMContentLoaded', () => {
         messageInput.value = '';
         loadingIndicator.style.display = 'flex';
 
-        // Create a placeholder for the streaming model response
         const modelMessageElement = appendMessage('model', '');
         let fullResponse = '';
 
@@ -105,14 +105,11 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Fetch error:', error);
         } finally {
             loadingIndicator.style.display = 'none';
-            // Add the complete response to the history for the next turn
             conversationHistory.push({ role: 'model', parts: [{ "text": fullResponse }] });
         }
     }
 
-    // This function is now simplified, as history is rendered optimistically during streaming
     function renderHistory() {
-        // Find the last model message element and update it with the final rendered markdown.
         const modelMessages = chatHistory.querySelectorAll('.model-message');
         if(modelMessages.length > 0) {
             const lastModelMessage = modelMessages[modelMessages.length - 1];
@@ -138,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }).then(() => {
             runAgentButton.disabled = true;
             stopAgentButton.disabled = false;
+            agentStatusSpan.textContent = "Running...";
             statusInterval = setInterval(pollStatus, 2000);
         });
     });
@@ -146,6 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch(`${API_BASE_URL}stop_agent`, { method: 'POST' }).then(() => {
             runAgentButton.disabled = false;
             stopAgentButton.disabled = true;
+            agentStatusSpan.textContent = "Idle";
             clearInterval(statusInterval);
         });
     });
@@ -158,10 +157,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 mainPlanTextarea.value = data.main_plan;
                 scratchpadMd.innerHTML = marked.parse(data.scratchpad);
                 mainPlanMd.innerHTML = marked.parse(data.main_plan);
+                agentStatusSpan.textContent = data.agent_status;
 
                 if (!data.agent_running) {
                     runAgentButton.disabled = false;
                     stopAgentButton.disabled = true;
+                    agentStatusSpan.textContent = "Idle";
                     clearInterval(statusInterval);
                     alert("Agent has finished its task.");
                 }
@@ -169,14 +170,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     fixErrorButton.addEventListener('click', async () => {
-        // This function will also need to be adapted for streaming if used mid-conversation
-        // For now, it assumes a non-streaming fix, which might be simpler
         const lastModelResponse = conversationHistory[conversationHistory.length - 1];
         if (lastModelResponse && lastModelResponse.role === 'model') {
             const errorMessage = prompt("Enter the error message:");
             if (errorMessage) {
                 loadingIndicator.style.display = 'flex';
-                // Create a placeholder for the streaming model response
                 const modelMessageElement = appendMessage('model', '');
                 let fullResponse = '';
 

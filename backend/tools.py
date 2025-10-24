@@ -2,7 +2,7 @@
 
 import os
 import docker
-from google.generativeai.protos import FunctionDeclaration, Tool
+from google.generativeai.protos import FunctionDeclaration, Tool, Schema, Type
 import requests
 import json
 
@@ -124,15 +124,101 @@ def finish_task() -> str:
 
 # --- Tool Configuration ---
 tools = [
-    FunctionDeclaration(name="read_file", description="Reads the content of a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]}),
-    FunctionDeclaration(name="write_file", description="Writes content to a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]}),
-    FunctionDeclaration(name="list_files", description="Lists the files in a directory.", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
-    FunctionDeclaration(name="create_directory", description="Creates a new directory.", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
-    FunctionDeclaration(name="delete_file", description="Deletes a file.", parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]}),
-    FunctionDeclaration(name="rename_file", description="Renames or moves a file or directory.", parameters={"type": "object", "properties": {"old_filepath": {"type": "string"}, "new_filepath": {"type": "string"}}, "required": ["old_filepath", "new_filepath"]}),
-    FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters={"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}),
-    FunctionDeclaration(name="web_search", description="Performs a web search to find information on a topic.", parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}),
-    FunctionDeclaration(name="finish_task", description="Signals that the task is complete and stops the agent.", parameters={}),
+    FunctionDeclaration(
+        name="read_file",
+        description="Reads the content of a file.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "filepath": Schema(type=Type.STRING)
+            },
+            required=["filepath"]
+        )
+    ),
+    FunctionDeclaration(
+        name="write_file",
+        description="Writes content to a file.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "filepath": Schema(type=Type.STRING),
+                "content": Schema(type=Type.STRING)
+            },
+            required=["filepath", "content"]
+        )
+    ),
+    FunctionDeclaration(
+        name="list_files",
+        description="Lists the files in a directory.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "path": Schema(type=Type.STRING)
+            },
+            required=["path"]
+        )
+    ),
+    FunctionDeclaration(
+        name="create_directory",
+        description="Creates a new directory.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "path": Schema(type=Type.STRING)
+            },
+            required=["path"]
+        )
+    ),
+    FunctionDeclaration(
+        name="delete_file",
+        description="Deletes a file.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "filepath": Schema(type=Type.STRING)
+            },
+            required=["filepath"]
+        )
+    ),
+    FunctionDeclaration(
+        name="rename_file",
+        description="Renames or moves a file or directory.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "old_filepath": Schema(type=Type.STRING),
+                "new_filepath": Schema(type=Type.STRING)
+            },
+            required=["old_filepath", "new_filepath"]
+        )
+    ),
+    FunctionDeclaration(
+        name="execute_python_code",
+        description="Executes Python code in a sandboxed Docker container.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "code": Schema(type=Type.STRING)
+            },
+            required=["code"]
+        )
+    ),
+    FunctionDeclaration(
+        name="web_search",
+        description="Performs a web search to find information on a topic.",
+        parameters=Schema(
+            type=Type.OBJECT,
+            properties={
+                "query": Schema(type=Type.STRING)
+            },
+            required=["query"]
+        )
+    ),
+    FunctionDeclaration(
+        name="finish_task",
+        description="Signals that the task is complete and stops the agent.",
+        parameters=Schema(type=Type.OBJECT, properties={})
+    ),
 ]
 
 tool_config = Tool(function_declarations=tools)

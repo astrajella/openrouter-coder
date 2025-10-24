@@ -6,3 +6,4 @@ chromadb
 sentence-transformers
 docker
 requests
+pytest
