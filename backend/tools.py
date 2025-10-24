@@ -144,6 +144,24 @@ def execute_python_code(code: str) -> str:
         if os.path.exists(temp_code_path):
             os.remove(temp_code_path)
 
+def run_tests(test_directory: str) -> str:
+    """Runs pytest on a specified directory within the workspace."""
+    safe_path = get_safe_path(test_directory)
+    if not os.path.normpath(safe_path).startswith(os.path.normpath(workspace_path)):
+        return "Error: Can only run tests within the workspace."
+
+    try:
+        process = subprocess.run(
+            ['python3', '-m', 'pytest', safe_path],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        return f"Test Results:\nSTDOUT:\n{process.stdout}\nSTDERR:\n{process.stderr}"
+    except Exception as e:
+        return str(e)
+
+
 def debug_script(filepath: str, commands: list[str]) -> str:
     """Executes a Python script with the pdb debugger and a list of commands."""
     safe_path = get_safe_path(filepath)
@@ -157,7 +175,7 @@ def debug_script(filepath: str, commands: list[str]) -> str:
             input=debugger_commands,
             capture_output=True,
             text=True,
-            timeout=30 # Add a timeout for safety
+            timeout=30
         )
         return f"Debugger Output:\nSTDOUT:\n{process.stdout}\nSTDERR:\n{process.stderr}"
     except Exception as e:
@@ -275,6 +293,7 @@ tools = [
     FunctionDeclaration(name="delete_file", description="Deletes a file in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING)}, required=["filepath"])),
     FunctionDeclaration(name="rename_file", description="Renames or moves a file in the workspace.", parameters=Schema(type=Type.OBJECT, properties={"old_filepath": Schema(type=Type.STRING), "new_filepath": Schema(type=Type.STRING)}, required=["old_filepath", "new_filepath"])),
     FunctionDeclaration(name="execute_python_code", description="Executes Python code in a sandboxed Docker container.", parameters=Schema(type=Type.OBJECT, properties={"code": Schema(type=Type.STRING)}, required=["code"])),
+    FunctionDeclaration(name="run_tests", description="Runs pytest on a specified directory.", parameters=Schema(type=Type.OBJECT, properties={"test_directory": Schema(type=Type.STRING)}, required=["test_directory"])),
     FunctionDeclaration(name="debug_script", description="Executes a Python script with the pdb debugger and a list of commands.", parameters=Schema(type=Type.OBJECT, properties={"filepath": Schema(type=Type.STRING), "commands": Schema(type=Type.ARRAY, items=Schema(type=Type.STRING))}, required=["filepath", "commands"])),
     FunctionDeclaration(name="execute_git_command", description="Executes a whitelisted Git command.", parameters=Schema(type=Type.OBJECT, properties={"command": Schema(type=Type.STRING)}, required=["command"])),
     FunctionDeclaration(name="web_search", description="Performs a web search.", parameters=Schema(type=Type.OBJECT, properties={"query": Schema(type=Type.STRING)}, required=["query"])),
@@ -286,5 +305,5 @@ tools = [
 
 tool_config = Tool(function_declarations=tools)
 tool_map = {
-    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "debug_script": debug_script, "execute_git_command": execute_git_command, "web_search": web_search, "record_learning": record_learning, "request_confirmation": request_confirmation, "generate_project_blueprint": generate_project_blueprint, "finish_task": finish_task,
+    "read_file": read_file, "write_file": write_file, "list_files": list_files, "create_directory": create_directory, "delete_file": delete_file, "rename_file": rename_file, "execute_python_code": execute_python_code, "run_tests": run_tests, "debug_script": debug_script, "execute_git_command": execute_git_command, "web_search": web_search, "record_learning": record_learning, "request_confirmation": request_confirmation, "generate_project_blueprint": generate_project_blueprint, "finish_task": finish_task,
 }
