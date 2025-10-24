@@ -35,14 +35,16 @@ def agent_loop(goal: str, model_name: str):
 
         prompt = (
             f"You are an autonomous AI coder. Your current goal is to: {goal}\n\n"
-            "**IMPORTANT RULES**:\n"
-            "1. You MUST perform all file system operations exclusively within the `/workspace` directory.\n"
-            "2. Before executing any critical action (like `write_file`, `delete_file`, `rename_file`, or `execute_python_code`), you MUST use the `request_confirmation` tool.\n"
-            "3. For complex tasks requiring a high-level understanding of a project's architecture, use the `generate_project_blueprint` tool at the beginning of your work.\n\n"
+            "**IMPORTANT RULES & GUIDELINES**:\n"
+            "1. **Workspace**: You MUST perform all file system operations exclusively within the `/workspace` directory.\n"
+            "2. **Confirmation**: Before executing any critical action (like `write_file`, `delete_file`, `rename_file`, `execute_python_code`, or `execute_git_command` with `push`), you MUST use the `request_confirmation` tool.\n"
+            "3. **Blueprint**: For complex tasks, consider using the `generate_project_blueprint` tool at the beginning to understand the architecture.\n"
+            "4. **Git Workflow**: You MUST follow a standard Git workflow: create a branch, add, commit, and push.\n"
+            "5. **Debugging**: If `execute_python_code` fails, first analyze the error. If the error is complex and requires state inspection, use the `debug_script` tool to set breakpoints and inspect variables.\n\n"
             f"Here is your main plan:\n{main_plan}\n\n"
             f"Here is your scratchpad with recent actions and results:\n{scratchpad}\n\n"
             "Based on the above, what is the next single action to take? "
-            "If you believe the main goal is complete, first `record_learning` to save any important insights, then use `finish_task`."
+            "If the goal is complete, ensure you have pushed your changes, then `record_learning` and `finish_task`."
         )
 
         response = chat_session.send_message(prompt)
@@ -69,10 +71,8 @@ def agent_loop(goal: str, model_name: str):
                 if tool_name == 'execute_python_code' and "error" in tool_result.lower():
                     agent_status = "Debugging code..."
                     error_prompt = (
-                        f"The code execution failed with the following error:\\n{tool_result}\\n\\n"
-                        "Please analyze the error and the code that was executed. "
-                        "Then, use the file system tools to read the relevant files, "
-                        "propose a fix, write the changes to the file, and then try executing the code again."
+                        f"The code execution failed. Analyze the error and use your tools to fix it. "
+                        f"If the error is complex, consider using the `debug_script` tool to inspect the state of the program."
                     )
                     with open(scratchpad_path, 'a') as f:
                         f.write(f"\\n[DEBUG]: Entering self-correction mode due to error.")
@@ -109,7 +109,7 @@ def pause_for_confirmation(prompt: str):
     agent_status = "PAUSED_FOR_CONFIRMATION"
     confirmation_prompt = prompt
     confirmation_event.clear()
-    confirmation_event.wait() # This will block until the user responds
+    confirmation_event.wait()
     return user_response
 
 def respond_to_confirmation(response: str):
